@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Live Notebook</title>
+    <link rel="stylesheet" href="https://unpkg.com/vditor@4.0.1/dist/index.css" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <div class="brand">
+          <span class="brand-mark">▮</span>
+          <span class="brand-name">Live Notebook</span>
+        </div>
+        <div class="sidebar-actions">
+          <button id="new-note" class="button primary" type="button" title="New note (n)">+ New note</button>
+          <button id="new-notebook" class="button" type="button" title="New notebook">New notebook</button>
+        </div>
+        <input id="search" class="search" type="search" placeholder="Search notes…" autocomplete="off" />
+        <nav id="tree" class="tree" aria-label="Notebooks"></nav>
+      </aside>
+      <main id="main">
+        <div id="empty" class="empty">
+          <h1>Your notes, as markdown.</h1>
+          <p>Pick a note on the left, or make a new one. Everything you type is saved to a plain markdown file that Claude Code reads back into the Notebook pane.</p>
+          <p id="boot-status" class="status"></p>
+        </div>
+        <article id="note" class="note" hidden>
+          <header class="note-head">
+            <div class="crumbs"><span id="crumb-notebook"></span></div>
+            <input id="title" class="title" type="text" placeholder="Untitled" autocomplete="off" spellcheck="true" />
+            <div class="meta">
+              <span id="meta-updated"></span>
+              <span class="dot">·</span>
+              <span id="meta-captured"></span>
+              <span id="status" class="status"></span>
+              <span class="meta-spacer"></span>
+              <button id="delete-note" class="button quiet" type="button">Delete</button>
+            </div>
+          </header>
+          <div id="editor"></div>
+        </article>
+      </main>
+    </div>
+    <script src="https://unpkg.com/vditor@4.0.1/dist/index.min.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

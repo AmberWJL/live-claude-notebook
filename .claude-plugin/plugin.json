@@ -1,0 +1,7 @@
+{
+  "name": "live-notebook",
+  "version": "0.1.0",
+  "description": "Capture, browse and search useful messages from Claude Code conversations without leaving Claude Code.",
+  "author": { "name": "Amber Wang" },
+  "types": "./types/index.d.ts"
+}

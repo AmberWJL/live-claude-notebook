@@ -1,0 +1,6 @@
+{
+  "name": "live-notebook",
+  "description": "Live Notebook: capture, organize and search useful messages from Claude Code conversations, with an editable web notebook.",
+  "owner": { "name": "Amber Wang" },
+  "plugins": [{ "name": "live-notebook", "source": "./" }]
+}
