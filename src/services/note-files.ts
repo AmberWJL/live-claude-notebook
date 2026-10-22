@@ -5,7 +5,7 @@
  * the hooks module only does the reading and writing.
  */
 import type { EntryType, NotebookEntry } from '../../types'
-import { isEntryType } from '../domain/notebook-entry'
+import { DEFAULT_FOLDER, isEntryType } from '../domain/notebook-entry'
 import { normalizeContent } from '../utils/normalize-content'
 
 /** The directory under the notes root that holds one folder per notebook. */
@@ -126,6 +126,7 @@ export type NoteFile = {
 
 export type ImportAction =
   | { kind: 'folder'; name: string }
+  | { kind: 'folder-gone'; name: string }
   | { kind: 'update'; entryId: string; content?: string; title?: string; file?: string; folder?: string; type?: EntryType }
   | { kind: 'archive'; entryId: string }
   | { kind: 'create'; path: string; folder: string; content: string; title?: string; id?: string; createdAt?: number; type?: EntryType }
@@ -155,6 +156,14 @@ export function planImport(input: ImportPlanInput): ImportAction[] {
   const actions: ImportAction[] = []
   for (const dir of input.dirs) {
     if (!input.folders.some(one => one.toLowerCase() === dir.toLowerCase())) actions.push({ kind: 'folder', name: dir })
+  }
+  // A notebook whose directory disappeared was renamed or deleted on the web
+  // (or by hand). The default notebook stays whatever happens to its folder.
+  if (input.dirs.length > 0) {
+    for (const folder of input.folders) {
+      if (folder === DEFAULT_FOLDER) continue
+      if (!input.dirs.some(dir => dir.toLowerCase() === folder.toLowerCase())) actions.push({ kind: 'folder-gone', name: folder })
+    }
   }
   const byPath = new Map<string, NotebookEntry>()
   const byId = new Map<string, NotebookEntry>()

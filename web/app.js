@@ -1,8 +1,7 @@
 /* Live Notebook web app: notebooks and notes in the sidebar, one note open
- * in a Vditor instant-rendering editor, autosaved to its markdown file
+ * in a Toast UI WYSIWYG markdown editor, autosaved to its markdown file
  * through the local server. Plain script, no build step. */
 ;(() => {
-  const VDITOR_CDN = 'https://unpkg.com/vditor@4.0.1'
   const $ = id => document.getElementById(id)
   const els = {
     tree: $('tree'),
@@ -28,6 +27,8 @@
     saveTimer: null,
     query: '',
     collapsed: new Set(),
+    /** The notebook whose actions row is open, if any. */
+    menuFor: null,
     /** True once the person typed in the title field of the open note. */
     titleTouched: false,
   }
@@ -104,16 +105,40 @@
 
       const head = document.createElement('div')
       head.className = 'notebook-head'
-      head.innerHTML = `<span class="name"></span><span class="count"></span>`
+      head.innerHTML = `<span class="name"></span><span class="count"></span><button class="menu" type="button" title="Notebook actions">⋯</button>`
       head.querySelector('.name').textContent = notebook.name
       head.querySelector('.count').textContent = String(notebook.count)
       head.title = state.collapsed.has(notebook.name) ? 'Expand' : 'Collapse'
-      head.addEventListener('click', () => {
+      head.addEventListener('click', event => {
+        if (event.target.closest('.menu')) return
         if (state.collapsed.has(notebook.name)) state.collapsed.delete(notebook.name)
         else state.collapsed.add(notebook.name)
         renderTree()
       })
+      head.querySelector('.menu').addEventListener('click', () => {
+        state.menuFor = state.menuFor === notebook.name ? null : notebook.name
+        renderTree()
+      })
       section.append(head)
+
+      if (state.menuFor === notebook.name) {
+        const actions = document.createElement('div')
+        actions.className = 'notebook-actions'
+        const make = (label, handler) => {
+          const button = document.createElement('button')
+          button.type = 'button'
+          button.className = 'button small'
+          button.textContent = label
+          button.addEventListener('click', () => void handler())
+          return button
+        }
+        actions.append(
+          make('Rename', () => renameNotebook(notebook.name)),
+          make('Export .md', () => exportNotebook(notebook.name)),
+          make('Delete', () => deleteNotebook(notebook.name)),
+        )
+        section.append(actions)
+      }
 
       if (Array.isArray(notebook.tags) && notebook.tags.length > 0) {
         const tags = document.createElement('div')
@@ -165,52 +190,39 @@
   function ensureEditor(initial) {
     return new Promise(resolve => {
       if (state.editor) {
-        state.editor.setValue(initial, true)
+        state.quiet = true
+        state.editor.setMarkdown(initial, false)
+        state.quiet = false
         resolve(state.editor)
         return
       }
-      const editor = new Vditor('editor', {
-        mode: 'ir',
-        cdn: VDITOR_CDN,
+      const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+      const editor = new toastui.Editor({
+        el: $('editor'),
         height: 'auto',
-        minHeight: 420,
-        value: initial,
-        placeholder: 'Write in markdown. The syntax fades as you type.',
-        cache: { enable: false },
-        counter: { enable: false },
-        toolbarConfig: { pin: false },
-        toolbar: [
-          'headings',
-          'bold',
-          'italic',
-          'strike',
-          '|',
-          'list',
-          'ordered-list',
-          'check',
-          'quote',
-          'code',
-          'inline-code',
-          'link',
-          'table',
-          '|',
-          'undo',
-          'redo',
-          '|',
-          'outline',
-          'edit-mode',
+        minHeight: '420px',
+        initialEditType: 'wysiwyg',
+        previewStyle: 'tab',
+        hideModeSwitch: false,
+        usageStatistics: false,
+        autofocus: false,
+        initialValue: initial,
+        placeholder: 'Write in markdown, or just write.',
+        theme: isDark ? 'dark' : 'light',
+        toolbarItems: [
+          ['heading', 'bold', 'italic', 'strike'],
+          ['hr', 'quote'],
+          ['ul', 'ol', 'task'],
+          ['table', 'link', 'code', 'codeblock'],
         ],
-        preview: {
-          markdown: { toc: true, mark: true },
-          math: { engine: 'KaTeX' },
-          hljs: { lineNumber: false },
-        },
-        input: () => markDirty(),
-        after: () => {
-          state.editor = editor
-          resolve(editor)
+        events: {
+          change: () => {
+            if (!state.quiet) markDirty()
+          },
         },
       })
+      state.editor = editor
+      resolve(editor)
     })
   }
 
@@ -224,7 +236,7 @@
 
   async function save() {
     if (!state.open || !state.dirty || !state.editor) return
-    const content = state.editor.getValue()
+    const content = state.editor.getMarkdown()
     let title = els.title.value.trim()
     if (!state.titleTouched || title === '' || title === 'Untitled') {
       // Not named by the person: the note is titled from its first line.
@@ -311,6 +323,47 @@
     }
   }
 
+  async function renameNotebook(name) {
+    const next = prompt(`Rename notebook "${name}" to:`, name)
+    if (!next || next.trim() === '' || next.trim() === name) return
+    try {
+      await api('PUT', '/api/notebook', { name, newName: next.trim() })
+      state.menuFor = null
+      if (state.open && state.open.meta.folder === name) closeNote()
+      await refreshTree()
+      setStatus(`Renamed to ${next.trim()}`)
+    } catch (error) {
+      setStatus(error.message, 'error')
+    }
+  }
+
+  function exportNotebook(name) {
+    const link = document.createElement('a')
+    link.href = `/api/export?name=${encodeURIComponent(name)}`
+    link.download = ''
+    document.body.append(link)
+    link.click()
+    link.remove()
+    state.menuFor = null
+    renderTree()
+  }
+
+  async function deleteNotebook(name) {
+    const notebook = state.notebooks.find(one => one.name === name)
+    const count = notebook ? notebook.count : 0
+    const what = count === 0 ? `Delete the empty notebook "${name}"?` : `Delete "${name}" and its ${count} ${count === 1 ? 'note' : 'notes'}? They move to the trash folder on disk, and Claude Code archives them.`
+    if (!confirm(what)) return
+    try {
+      await api('DELETE', `/api/notebook?name=${encodeURIComponent(name)}`)
+      state.menuFor = null
+      if (state.open && state.open.meta.folder === name) closeNote()
+      await refreshTree()
+      setStatus('Notebook deleted')
+    } catch (error) {
+      setStatus(error.message, 'error')
+    }
+  }
+
   async function deleteNote() {
     if (!state.open) return
     if (!confirm(`Delete "${els.title.value || 'Untitled'}"? Claude Code keeps it as an archived entry.`)) return
@@ -360,7 +413,7 @@
     if (state.dirty && state.open && state.editor) {
       navigator.sendBeacon?.(
         `/api/note?path=${encodeURIComponent(state.open.path)}`,
-        new Blob([JSON.stringify({ content: state.editor.getValue(), title: els.title.value.trim() })], {
+        new Blob([JSON.stringify({ content: state.editor.getMarkdown(), title: els.title.value.trim() })], {
           type: 'application/json',
         }),
       )

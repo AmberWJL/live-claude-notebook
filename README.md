@@ -30,7 +30,7 @@ your own API client; see "Data" below for exactly what is sent.
 | --- | --- |
 | `/save` | With no arguments: if text is selected in the transcript, drafts it as an excerpt; otherwise lists the newest messages of this session to pick from. |
 | `/save <text>` | Drafts the typed text as an excerpt. |
-| `/notebook [search]` | Opens the Notebook pane, optionally with a search query. |
+| `/notebook [search]` | Opens the Notebook pane, optionally with a search query. `/notebook web` opens the web notebook. |
 
 Every assistant reply also carries a dim **save to notebook** control under
 each block (terminal and desktop). Pressing it drafts that block, with its
@@ -43,18 +43,21 @@ nothing saved is ever injected into Claude's context.
 
 ## Web notebook
 
-`/notebook web`, or **Open web notebook** in the pane, starts a small local
-server (Node, no dependencies, bound to 127.0.0.1) and opens the notebook in
-your browser: notebooks and notes in a sidebar, each notebook with its
-tags, and the open note in a [Vditor](https://github.com/Vanessa219/vditor)
-instant-rendering editor, where the markdown syntax fades as you type.
-Edits autosave to the note's markdown file; Claude Code picks them up within
-a few seconds. Notes and notebooks made on the web appear in the pane too.
+A small local server (Node, no dependencies, bound to 127.0.0.1) starts
+with every session. **Open Live Notebook** at the top of the pane, or
+`/notebook web`, opens it in your browser: notebooks and notes in a sidebar,
+each notebook with its tags, and the open note in a
+[Toast UI Editor](https://github.com/nhn/tui.editor) (English, WYSIWYG with a
+markdown mode). Edits autosave to the note's markdown file; Claude Code picks
+them up within a few seconds. Notes and notebooks made on the web appear in
+the pane too. Each notebook's `⋯` menu on the web renames it, exports it as
+one `.md` file you save locally, or deletes it (the folder moves to
+`~/.claude/live-notebook/trash`, and Claude Code archives its notes).
 
 Notes live as plain markdown files with front matter under
 `~/.claude/live-notebook/notes/<Notebook>/`, so any editor can change them.
-`/notebook stop` ends the server. The editor itself loads from a CDN
-(`unpkg.com/vditor`), so the page needs internet access the first time.
+The editor loads from a CDN (`uicdn.toast.com`), so the page needs internet
+access the first time. To stop the server by hand: `npm run web:stop`.
 
 ## Pane
 
@@ -63,7 +66,7 @@ Notes live as plain markdown files with front matter under
 - **Confirm**: notebook picker with a "new notebook" field, a multi-line content editor (click into it, type, Esc when done), the derived title, Save / Cancel. After saving you are back on the list with a short "Saved to …" line and an Open button; the line clears itself. Saving the same message again opens the existing note instead of making a second one.
 - **Detail**: `← Back to notes` with Edit, Archive and Delete (two presses) on the right; the type mark and title, date and notebook, tags, the type picker, the content, then the source: where it was captured from, when, what it was in reply to, `View in conversation` while the original message is on screen, and the original snapshot behind a toggle with a copy button. On a wide pane the notebook's notes stay listed beside the open one.
 - **Edit**: the same editor and folder picker over an existing entry; the original snapshot is kept.
-- **Home**: a toolbar (search field that filters as you type, `+ New note`, a `⋯` menu with the web notebook controls, a "New notebook" field and the notes folder), filter chips (All notes, Insights, Decisions, References, Ideas), then your notebooks as collapsible groups with their count and tags. Each note is one row: a type mark, the title, the date, a one-line preview and its tags. Empty notebooks start collapsed.
+- **Home**: a toolbar (`Open Live Notebook`, `+ New note`, a `⋯` menu with a "New notebook" field and the notes folder, and a search field that filters as you type), filter chips (All notes, Insights, Decisions, References, Ideas), then your notebooks as collapsible groups with their count and tags. Each note is one row: a type mark, the title, the date, a one-line preview and its tags. Empty notebooks start collapsed.
 - **Types and tags**: after a save, a model (Haiku) assigns the note a type (insight, learning, idea, decision, reference or other) and up to three tags, so the filters and rows have something to show. Change the type with the picker in the detail view. A notebook's own tags come the same way from its notes' titles, first lines and project directories.
 - **Confirm**: notebook picker with a "new notebook" field, a multi-line content editor (click into it, type, Esc when done), the derived title, Save / Cancel. After saving you are back on the list with a short "Saved to …" line and an Open button; the line clears itself. Saving the same message again opens the existing note instead of making a second one.
 - **Detail**: `← Back to notes` with Edit, Archive and Delete (two presses) on the right; the type mark and title, date and notebook, tags, the type picker, the content, then the source: where it was captured from, when, what it was in reply to, `View in conversation` while the original message is on screen, and the original snapshot behind a toggle with a copy button. On a wide pane the notebook's notes stay listed beside the open one.

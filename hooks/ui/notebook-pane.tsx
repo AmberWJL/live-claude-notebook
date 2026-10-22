@@ -60,7 +60,6 @@ export type PaneActions = {
   home: () => void
   newNote: () => void
   openWeb: (folder?: string) => void
-  stopWeb: () => void
   pick: (candidate: MessageCandidate) => void
   setDraftFolder: (folder: string) => void
   addFolder: (name: string) => void
@@ -246,8 +245,13 @@ export function renderNotebookPane(
   }
 
   function toolbar(): RenderElement {
+    const openWeb = (
+      <Button key="web" variant="primary" onPress={() => actions.openWeb()}>
+        {isNarrow ? 'Open' : 'Open Live Notebook'}
+      </Button>
+    )
     const newNote = (
-      <Button key="new-note" variant="primary" onPress={() => actions.newNote()}>
+      <Button key="new-note" onPress={() => actions.newNote()}>
         {isNarrow ? '+' : '+ New note'}
       </Button>
     )
@@ -259,19 +263,23 @@ export function renderNotebookPane(
     if (isNarrow) {
       return (
         <Box flexDirection="column">
-          <Box justifyContent="space-between" gap={1}>
-            {searchField()}
+          <Box gap={1}>
+            {openWeb}
             {newNote}
             {more}
           </Box>
+          {searchField()}
         </Box>
       )
     }
     return (
-      <Box gap={1} alignItems="center">
-        {searchField()}
-        {newNote}
-        {more}
+      <Box flexDirection="column">
+        <Box gap={1}>
+          {openWeb}
+          {newNote}
+          {more}
+        </Box>
+        <Box marginTop={1}>{searchField()}</Box>
       </Box>
     )
   }
@@ -297,17 +305,6 @@ export function renderNotebookPane(
   function secondaryMenu(): RenderElement {
     return (
       <Box flexDirection="column" marginTop={1}>
-        <Box flexDirection={isNarrow ? 'column' : 'row'} gap={1}>
-          <Button key="web" onPress={() => actions.openWeb()}>
-            {model.server ? 'Open in browser' : 'Start web notebook'}
-          </Button>
-          {model.server && (
-            <Button key="web-stop" plain dimColor onPress={() => actions.stopWeb()}>
-              stop
-            </Button>
-          )}
-          <Text dimColor>{model.server ? 'web notebook running' : 'web notebook off'}</Text>
-        </Box>
         <Input
           key="new-notebook"
           placeholder="New notebook"
@@ -317,6 +314,7 @@ export function renderNotebookPane(
           }}
         />
         {model.notesRoot !== '' && <Text dimColor>{`Notes are markdown files in ${model.notesRoot}/notes`}</Text>}
+        <Text dimColor>Rename, export or delete a notebook in the web notebook.</Text>
       </Box>
     )
   }

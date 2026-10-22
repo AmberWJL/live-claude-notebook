@@ -104,6 +104,15 @@ describe('NotebookService', () => {
     expect(moved.folder).toBe('General')
   })
 
+  test('removeFolder forgets a notebook and keeps a usable last-used one', async () => {
+    const { service } = serviceWith()
+    await service.addFolder('Work')
+    await service.addFolder('Ideas')
+    expect(await service.removeFolder('ideas')).toEqual({ names: ['General', 'Work'], last: 'General' })
+    expect(await service.removeFolder('Work')).toEqual({ names: ['General'], last: 'General' })
+    expect(await service.removeFolder('General')).toEqual({ names: ['General'], last: 'General' })
+  })
+
   test('a content edit re-derives a derived title and keeps a custom one', async () => {
     const { service } = serviceWith()
     const derived = await service.create({ content: 'first line\nmore', source })

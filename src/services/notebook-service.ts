@@ -123,6 +123,17 @@ export class NotebookService {
     return next
   }
 
+  /** Forgets a notebook; its entries, if any, keep their folder field until moved. */
+  async removeFolder(name: string): Promise<FoldersRecord> {
+    const record = await this.deps.repository.readFolders()
+    const names = record.names.filter(one => one.toLowerCase() !== name.toLowerCase())
+    if (names.length === record.names.length) return record
+    if (names.length === 0) names.push(DEFAULT_FOLDER)
+    const next: FoldersRecord = { names, last: names.includes(record.last) ? record.last : (names[0] ?? DEFAULT_FOLDER) }
+    await this.deps.repository.writeFolders(next)
+    return next
+  }
+
   /** Sets an entry's file path without touching its content or timestamps. */
   async setFile(id: string, file: string): Promise<NotebookEntry> {
     const existing = await this.requireEntry(id)

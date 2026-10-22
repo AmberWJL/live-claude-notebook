@@ -16,7 +16,7 @@
  */
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { basename, extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -318,6 +318,74 @@ async function handle(req, res) {
       mkdirSync(join(notesDir, folder), { recursive: true })
       touch()
       return send(res, 201, { name: folder })
+    }
+
+    if (pathname === '/api/notebook' && req.method === 'PUT') {
+      // Rename: the directory moves and every note's front matter follows.
+      const body = await readBody(req)
+      const from = safeFolder(body.name)
+      const to = safeFolder(body.newName)
+      if (from === undefined || to === undefined) return send(res, 400, { error: 'bad folder' })
+      const fromDir = join(notesDir, from)
+      const toDir = join(notesDir, to)
+      if (!existsSync(fromDir)) return send(res, 404, { error: 'not found' })
+      if (from !== to && existsSync(toDir)) return send(res, 409, { error: 'a notebook with that name exists' })
+      if (from !== to) renameSync(fromDir, toDir)
+      for (const file of readdirSync(toDir)) {
+        if (extname(file) !== '.md') continue
+        const abs = join(toDir, file)
+        const { meta, content } = parseNote(readFileSync(abs, 'utf8'))
+        meta.folder = to
+        writeFileSync(abs, serializeNote(meta, content))
+      }
+      try {
+        const metaFile = join(toDir, '_notebook.json')
+        const meta = existsSync(metaFile) ? JSON.parse(readFileSync(metaFile, 'utf8')) : {}
+        writeFileSync(metaFile, JSON.stringify({ ...meta, name: to }, null, 2))
+      } catch {
+        /* the mod rewrites it */
+      }
+      touch()
+      return send(res, 200, { name: to })
+    }
+
+    if (pathname === '/api/notebook' && req.method === 'DELETE') {
+      // Delete: the directory goes to <root>/trash, so nothing is lost.
+      const folder = safeFolder(url.searchParams.get('name'))
+      if (folder === undefined) return send(res, 400, { error: 'bad folder' })
+      const dir = join(notesDir, folder)
+      if (!existsSync(dir)) return send(res, 404, { error: 'not found' })
+      const trash = join(root, 'trash')
+      mkdirSync(trash, { recursive: true })
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+      renameSync(dir, join(trash, `${folder}--${stamp}`))
+      touch()
+      return send(res, 200, { ok: true, trashed: `trash/${folder}--${stamp}` })
+    }
+
+    if (pathname === '/api/export' && req.method === 'GET') {
+      const folder = safeFolder(url.searchParams.get('name'))
+      if (folder === undefined) return send(res, 400, { error: 'bad folder' })
+      const notebook = listNotebooks().find(one => one.name === folder)
+      if (!notebook) return send(res, 404, { error: 'not found' })
+      const parts = [`# ${folder}`, '']
+      if (notebook.tags.length > 0) parts.push(notebook.tags.map(tag => `#${tag}`).join(' '), '')
+      parts.push(`_Exported from Live Notebook on ${new Date().toISOString().slice(0, 10)} · ${notebook.count} ${notebook.count === 1 ? 'note' : 'notes'}_`, '')
+      for (const note of notebook.notes) {
+        const { meta, content } = parseNote(readFileSync(join(notesDir, note.path), 'utf8'))
+        const facts = [meta.type, meta.created ? `created ${meta.created.slice(0, 10)}` : null, meta.captured === 'whole_message' ? 'from a message' : null]
+          .filter(Boolean)
+          .join(' · ')
+        parts.push('---', '', `## ${note.title}`, '')
+        if (facts) parts.push(`_${facts}_`, '')
+        parts.push(content, '')
+      }
+      res.writeHead(200, {
+        'content-type': 'text/markdown; charset=utf-8',
+        'content-disposition': `attachment; filename="${slugOf(folder)}.md"`,
+        'cache-control': 'no-store',
+      })
+      return res.end(parts.join('\n'))
     }
 
     if (pathname.startsWith('/api/')) return send(res, 404, { error: 'not found' })

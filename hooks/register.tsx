@@ -371,6 +371,7 @@ async function importChanges($: Dollar, options: { force?: boolean } = {}): Prom
   for (const action of actions) {
     try {
       if (action.kind === 'folder') await service.ensureFolder(action.name)
+      else if (action.kind === 'folder-gone') await service.removeFolder(action.name)
       else if (action.kind === 'archive') await service.archive(action.entryId)
       else if (action.kind === 'update') {
         const patch: { content?: string; title?: string; file?: string; folder?: string; type?: EntryType } = {}
@@ -539,6 +540,15 @@ async function startServer($: Dollar): Promise<ServerInfo> {
   return info
 }
 
+/** Keeps the web notebook up from the start of the session; a failure waits for the person to press Open. */
+async function ensureServer($: Dollar): Promise<void> {
+  try {
+    await startServer($)
+  } catch {
+    /* reported when the person opens it */
+  }
+}
+
 async function openWeb($: Dollar, folder?: string): Promise<void> {
   try {
     const info = await startServer($)
@@ -546,20 +556,6 @@ async function openWeb($: Dollar, folder?: string): Promise<void> {
     const opened = await $.process.run(['open', url], { timeoutMs: 10_000 })
     if (opened.exitCode !== 0) await $.process.run(['xdg-open', url], { timeoutMs: 10_000 })
     await flashNotice($, { tone: 'ok', text: 'Opened in your browser' })
-  } catch (error) {
-    await setNotice($, { tone: 'error', text: messageOf(error) })
-  }
-}
-
-async function stopWeb($: Dollar): Promise<void> {
-  try {
-    const root = await notesRootOf($)
-    const node = await nodeBinary($)
-    await $.process.run([node, `${$.plugin.root}/server/notebook-server.mjs`, '--stop', '--root', root], {
-      timeoutMs: 10_000,
-    })
-    await update($, serverAtom, () => null)
-    await flashNotice($, { tone: 'ok', text: 'Web notebook stopped' })
   } catch (error) {
     await setNotice($, { tone: 'error', text: messageOf(error) })
   }
@@ -846,7 +842,6 @@ function actionsOf($: Dollar): PaneActions {
     home: () => void showHome($),
     newNote: () => void startBlankDraft($),
     openWeb: folder => void openWeb($, folder),
-    stopWeb: () => void stopWeb($),
     pick: candidate => void pickCandidate($, candidate),
     setDraftFolder: folder => void setDraftFolder($, folder),
     addFolder: name => void addFolder($, name),
@@ -890,8 +885,8 @@ export const register: Register = on => {
     })
     await $.command.register({
       name: 'notebook',
-      description: 'Open Live Notebook; "web" opens it in the browser, "stop" ends the web server',
-      argumentHint: '[search | web | stop]',
+      description: 'Open Live Notebook; "web" opens it in the browser',
+      argumentHint: '[search | web]',
     })
     try {
       const repository = repositoryOf($)
@@ -908,6 +903,7 @@ export const register: Register = on => {
       await update($, isLoadingAtom, () => false)
     }
     $.clock.every(IMPORT_EVERY_MS, () => void importChanges($))
+    $.clock.after(1, () => void ensureServer($))
     return next(e)
   })
 
@@ -980,10 +976,6 @@ export const register: Register = on => {
       await openWeb($)
       const server = await read($, serverAtom)
       return { text: server ? `Web notebook: ${server.url}` : 'The web notebook could not be started; see the pane.' }
-    }
-    if (args === 'stop') {
-      await stopWeb($)
-      return { text: 'Web notebook stopped.' }
     }
     // Not setQuery: opening the pane keeps a standing notice (an unreadable store record).
     await update($, queryAtom, () => args)

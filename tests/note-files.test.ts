@@ -111,6 +111,21 @@ describe('note files', () => {
     expect(actions).toEqual([{ kind: 'update', entryId: 't', type: 'decision' }])
   })
 
+  test('planImport forgets a notebook whose directory is gone, never the default one', async () => {
+    const actions = planImport({
+      files: [],
+      texts: {},
+      entries: [],
+      folders: ['General', 'Ops', 'Ideas'],
+      dirs: ['General', 'Ideas'],
+    })
+    expect(actions).toEqual([{ kind: 'folder-gone', name: 'Ops' }])
+    expect(planImport({ files: [], texts: {}, entries: [], folders: ['General', 'Ops'], dirs: [] })).toEqual([])
+    expect(planImport({ files: [], texts: {}, entries: [], folders: ['General'], dirs: ['Ideas'] })).toEqual([
+      { kind: 'folder', name: 'Ideas' },
+    ])
+  })
+
   test('planImport matches a moved file by its id and records the move', async () => {
     const moved = entry({ id: 'm-1', file: 'General/m.md', content: 'x' })
     const actions = planImport({

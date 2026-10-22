@@ -139,8 +139,7 @@ input {
 
 .notebook-head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: center;
   padding: 6px 8px 2px;
   font-size: 12px;
   text-transform: uppercase;
@@ -156,6 +155,33 @@ input {
 
 .notebook-head .count {
   font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+.notebook-head .menu {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 4px;
+  margin-left: 6px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.notebook-head .menu:hover {
+  color: var(--text);
+}
+
+.notebook-actions {
+  display: flex;
+  gap: 6px;
+  padding: 2px 8px 8px;
+}
+
+.button.small {
+  padding: 3px 8px;
+  font-size: 12px;
 }
 
 .notebook-summary {
@@ -290,32 +316,37 @@ input {
   flex: 1;
 }
 
-/* Vditor: make it read like a document, not a toolbar-heavy editor. */
-#editor.vditor {
+/* Toast UI Editor: a document, not a boxed form. */
+#editor .toastui-editor-defaultUI {
   border: 0;
-  background: transparent;
 }
 
-#editor .vditor-toolbar {
+#editor .toastui-editor-defaultUI-toolbar {
   background: transparent;
   border-bottom: 1px solid var(--line);
-  padding-left: 0 !important;
+  padding-left: 0;
 }
 
-#editor .vditor-reset {
+#editor .toastui-editor-toolbar-group {
+  background: transparent;
+}
+
+#editor .toastui-editor-main .ProseMirror,
+#editor .toastui-editor-contents {
   font-family: var(--sans);
   font-size: 16px;
   line-height: 1.65;
-  padding: 10px 0 !important;
+  color: var(--text);
 }
 
-#editor .vditor-ir pre.vditor-reset {
-  background: transparent;
-}
-
-#editor .vditor-reset code,
-#editor .vditor-reset pre {
+#editor .toastui-editor-contents code,
+#editor .toastui-editor-contents pre {
   font-family: var(--mono);
+}
+
+#editor .toastui-editor-mode-switch {
+  background: transparent;
+  border-top: 0;
 }
 
 @media (max-width: 760px) {
