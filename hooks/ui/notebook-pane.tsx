@@ -16,7 +16,7 @@ import { ENTRY_TYPES, isEntryType } from '../../src/domain/notebook-entry'
 import { TYPE_GLYPHS, TYPE_LABELS } from '../../src/services/classify'
 import { activeIn } from '../../src/services/notebook-tags'
 import { searchEntries } from '../../src/services/search-service'
-import { deriveTitle, oneLine, previewOf } from '../../src/utils/normalize-content'
+import { deriveTitle, oneLine } from '../../src/utils/normalize-content'
 
 /** The surfaces whose element table has Input and Select. */
 export type FormSurface = 'terminal' | 'desktop' | 'vscode'
@@ -35,7 +35,8 @@ export type PaneModel = {
   query: string
   typeFilter: string
   notice: Notice
-  menuOpen: boolean
+  /** The name field under "+ New notebook" is showing. */
+  isNamingNotebook: boolean
   isLoading: boolean
   isSaving: boolean
   showSnapshot: boolean
@@ -54,7 +55,7 @@ export type PaneModel = {
 export type PaneActions = {
   search: (query: string) => void
   filterType: (type: string) => void
-  toggleMenu: () => void
+  toggleNewNotebook: () => void
   toggleNotebook: (folder: string) => void
   dismissNotice: () => void
   home: () => void
@@ -183,37 +184,31 @@ export function renderNotebookPane(
     )
   }
 
-  /** Icon, title and date on one line; a one-line preview and the tags under it. */
+  /** One bordered card per note: the type mark, the title, the date. */
   function entryRow(
     entry: NotebookEntry,
     options: { withFolder: boolean; isSelected?: boolean; compact?: boolean; isFirst: boolean },
   ): RenderElement {
-    const textWidth = Math.max(14, measure - 12)
-    const tags = entry.tags.slice(0, 3)
-    const trail = options.withFolder ? [entry.folder, ...tags.map(tag => `#${tag}`)].join('  ') : hashTags(tags)
+    const textWidth = Math.max(12, measure - 16)
+    const folder = options.withFolder ? ` · ${entry.folder}` : ''
+    const isSelected = options.isSelected === true
     return (
-      <Box key={`row:${entry.id}`} flexDirection="column" marginTop={options.isFirst ? 0 : 1}>
-        <Box flexDirection="row" gap={1}>
-          <Text color="claude">{options.isSelected === true ? '▍' : TYPE_GLYPHS[entry.type]}</Text>
-          <Box flexGrow={1}>
-            <Button key={`entry:${entry.id}`} plain onPress={() => actions.open(entry.id)}>
-              {oneLine(entry.title, textWidth)}
-            </Button>
-          </Box>
-          <Text dimColor>{shortDate(entry.updatedAt)}</Text>
+      <Box
+        key={`row:${entry.id}`}
+        flexDirection="row"
+        gap={1}
+        paddingX={1}
+        borderStyle="round"
+        borderDimColor={!isSelected}
+        {...(isSelected ? { borderColor: 'claude' } : {})}
+      >
+        <Text color="claude">{TYPE_GLYPHS[entry.type]}</Text>
+        <Box flexGrow={1}>
+          <Button key={`entry:${entry.id}`} plain onPress={() => actions.open(entry.id)}>
+            {oneLine(entry.title, textWidth)}
+          </Button>
         </Box>
-        {options.compact !== true && (
-          <Box paddingLeft={2}>
-            <Text dimColor wrap="truncate-end">
-              {previewOf(entry, isNarrow ? textWidth : measure - 4)}
-            </Text>
-          </Box>
-        )}
-        {trail !== '' && options.compact !== true && (
-          <Box paddingLeft={2}>
-            <Text dimColor>{trail}</Text>
-          </Box>
-        )}
+        <Text dimColor>{`${shortDate(entry.updatedAt)}${folder}`}</Text>
       </Box>
     )
   }
@@ -230,7 +225,7 @@ export function renderNotebookPane(
             key="search"
             placeholder="Search notes…"
             value={query}
-            submitLabel="search"
+            submitLabel="Search"
             onInput={value => actions.search(value)}
             onSubmit={value => actions.search(value)}
           />
@@ -244,41 +239,41 @@ export function renderNotebookPane(
     )
   }
 
-  function toolbar(): RenderElement {
-    const openWeb = (
-      <Button key="web" variant="primary" onPress={() => actions.openWeb()}>
-        {isNarrow ? 'Open' : 'Open Live Notebook'}
-      </Button>
-    )
-    const newNote = (
-      <Button key="new-note" onPress={() => actions.newNote()}>
-        {isNarrow ? '+' : '+ New note'}
-      </Button>
-    )
-    const more = (
-      <Button key="more" plain dimColor onPress={() => actions.toggleMenu()}>
-        {model.menuOpen ? 'close' : '⋯'}
-      </Button>
-    )
-    if (isNarrow) {
-      return (
-        <Box flexDirection="column">
-          <Box gap={1}>
-            {openWeb}
-            {newNote}
-            {more}
-          </Box>
-          {searchField()}
+  function newNotebookField(): RenderElement {
+    return (
+      <Box gap={1} marginTop={1}>
+        <Box flexGrow={1}>
+          <Input
+            key="new-notebook"
+            placeholder="Notebook name"
+            submitLabel="create"
+            onSubmit={name => {
+              if (name.trim() !== '') actions.addFolder(name)
+            }}
+          />
         </Box>
-      )
-    }
+        <Button key="new-notebook-cancel" plain dimColor onPress={() => actions.toggleNewNotebook()}>
+          ×
+        </Button>
+      </Box>
+    )
+  }
+
+  function toolbar(): RenderElement {
     return (
       <Box flexDirection="column">
-        <Box gap={1}>
-          {openWeb}
-          {newNote}
-          {more}
+        <Button key="web" onPress={() => actions.openWeb()}>
+          {isNarrow ? '⧉ Open in Browser' : '⧉ Open Live Notebook in Browser'}
+        </Button>
+        <Box gap={1} marginTop={1} flexDirection={isNarrow ? 'column' : 'row'}>
+          <Button key="new-note" variant="primary" onPress={() => actions.newNote()}>
+            + Add New Note
+          </Button>
+          <Button key="new-notebook-start" onPress={() => actions.toggleNewNotebook()}>
+            + Add New Notebook
+          </Button>
         </Box>
+        {model.isNamingNotebook && newNotebookField()}
         <Box marginTop={1}>{searchField()}</Box>
       </Box>
     )
@@ -302,23 +297,6 @@ export function renderNotebookPane(
     )
   }
 
-  function secondaryMenu(): RenderElement {
-    return (
-      <Box flexDirection="column" marginTop={1}>
-        <Input
-          key="new-notebook"
-          placeholder="New notebook"
-          submitLabel="add"
-          onSubmit={name => {
-            if (name.trim() !== '') actions.addFolder(name)
-          }}
-        />
-        {model.notesRoot !== '' && <Text dimColor>{`Notes are markdown files in ${model.notesRoot}/notes`}</Text>}
-        <Text dimColor>Rename, export or delete a notebook in the web notebook.</Text>
-      </Box>
-    )
-  }
-
   function emptyState(): RenderElement {
     return (
       <Box flexDirection="column" alignItems="center" marginTop={2}>
@@ -327,7 +305,7 @@ export function renderNotebookPane(
         <Text dimColor>Save useful insights, decisions, and references from your conversations.</Text>
         <Box marginTop={1}>
           <Button key="new-note-empty" variant="primary" onPress={() => actions.newNote()}>
-            + New note
+            + Add New Note
           </Button>
         </Box>
       </Box>
@@ -565,20 +543,12 @@ export function renderNotebookPane(
             <Box key={`nb-row:${name}`} flexDirection="column" marginTop={1}>
               <Box justifyContent="space-between" gap={1}>
                 <Button key={`nb:${name}`} plain onPress={() => actions.toggleNotebook(name)}>
-                  {`${closed ? '▸' : '▾'} ${name}`}
+                  {`${closed ? '›' : '⌄'} ${name}`}
                 </Button>
                 <Text dimColor>{String(notes.length)}</Text>
               </Box>
-              {!closed && tags !== undefined && tags.tags.length > 0 && (
-                <Box paddingLeft={2}>
-                  <Text dimColor>{hashTags(tags.tags)}</Text>
-                </Box>
-              )}
-              {!closed && notes.length === 0 && (
-                <Box paddingLeft={2}>
-                  <Text dimColor>No notes yet.</Text>
-                </Box>
-              )}
+              {!closed && tags !== undefined && tags.tags.length > 0 && <Text dimColor>{hashTags(tags.tags)}</Text>}
+              {!closed && notes.length === 0 && <Text dimColor>No notes yet.</Text>}
               {!closed && <Box flexDirection="column">{rows(notes, false)}</Box>}
             </Box>
           )
@@ -590,7 +560,6 @@ export function renderNotebookPane(
   return (
     <Box flexDirection="column">
       {toolbar()}
-      {model.menuOpen && secondaryMenu()}
       {filterRow(typeFilter)}
       {noticeRow}
       {body}

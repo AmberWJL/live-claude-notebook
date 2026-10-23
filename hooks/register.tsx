@@ -86,7 +86,7 @@ const rowsAtom = atom({ plugin: 'live-notebook', key: 'rows' } as const, [] as A
 const queryAtom = atom({ plugin: 'live-notebook', key: 'query' } as const, '')
 const typeFilterAtom = atom({ plugin: 'live-notebook', key: 'typeFilter' } as const, '')
 const noticeAtom = atom({ plugin: 'live-notebook', key: 'notice' } as const, null as Notice)
-const menuOpenAtom = atom({ plugin: 'live-notebook', key: 'menuOpen' } as const, false)
+const namingNotebookAtom = atom({ plugin: 'live-notebook', key: 'namingNotebook' } as const, false)
 const isLoadingAtom = atom({ plugin: 'live-notebook', key: 'isLoading' } as const, true)
 const isSavingAtom = atom({ plugin: 'live-notebook', key: 'isSaving' } as const, false)
 const showSnapshotAtom = atom({ plugin: 'live-notebook', key: 'showSnapshot' } as const, false)
@@ -192,8 +192,8 @@ async function setTypeFilter($: Dollar, type: string): Promise<void> {
   await update($, typeFilterAtom, () => type)
 }
 
-async function toggleMenu($: Dollar): Promise<void> {
-  await update($, menuOpenAtom, isOpen => !(isOpen ?? false))
+async function toggleNewNotebook($: Dollar): Promise<void> {
+  await update($, namingNotebookAtom, isOpen => !(isOpen ?? false))
 }
 
 async function toggleSnapshot($: Dollar): Promise<void> {
@@ -652,7 +652,9 @@ async function addFolder($: Dollar, name: string): Promise<void> {
     await update($, foldersAtom, () => record)
     await update($, draftAtom, draft => (draft ? { ...draft, folder: record.last } : null))
     await update($, editAtom, edit => (edit ? { ...edit, folder: record.last } : null))
-    await setNotice($, null)
+    const fromHome = (await read($, namingNotebookAtom)) === true
+    await update($, namingNotebookAtom, () => false)
+    await setNotice($, fromHome ? { tone: 'ok', text: `Notebook "${record.last}" created` } : null)
     await refreshTags($)
   } catch (error) {
     await setNotice($, { tone: 'error', text: messageOf(error) })
@@ -836,7 +838,7 @@ function actionsOf($: Dollar): PaneActions {
   return {
     search: query => void setQuery($, query),
     filterType: type => void setTypeFilter($, type),
-    toggleMenu: () => void toggleMenu($),
+    toggleNewNotebook: () => void toggleNewNotebook($),
     toggleNotebook: folder => void toggleNotebook($, folder),
     dismissNotice: () => void setNotice($, null),
     home: () => void showHome($),
@@ -1025,9 +1027,9 @@ export const register: Register = on => {
         read($, noticeAtom),
         $.session.id(),
       ])
-    const [typeFilter, menuOpen, isLoading, isSaving, showSnapshot, notesRoot, collapsed] = await Promise.all([
+    const [typeFilter, isNamingNotebook, isLoading, isSaving, showSnapshot, notesRoot, collapsed] = await Promise.all([
       read($, typeFilterAtom),
-      read($, menuOpenAtom),
+      read($, namingNotebookAtom),
       read($, isLoadingAtom),
       read($, isSavingAtom),
       read($, showSnapshotAtom),
@@ -1059,7 +1061,7 @@ export const register: Register = on => {
         query,
         typeFilter,
         notice,
-        menuOpen,
+        isNamingNotebook,
         isLoading,
         isSaving,
         showSnapshot,

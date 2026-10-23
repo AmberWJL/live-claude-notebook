@@ -166,8 +166,8 @@ declare module 'claude-code' {
       /** '' for every type, else one EntryType. */
       typeFilter: string
       notice: Notice
-      /** The secondary menu (web notebook, new notebook, status) is open. */
-      menuOpen: boolean
+      /** The name field under "+ New notebook" is showing. */
+      namingNotebook: boolean
       /** True until the store has been read once this session. */
       isLoading: boolean
       /** True while a save is in flight. */
