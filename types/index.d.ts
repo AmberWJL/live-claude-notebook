@@ -138,8 +138,7 @@ export type NotebookView =
   | { kind: 'notebook'; folder: string }
   | { kind: 'pick' }
   | { kind: 'confirm' }
-  | { kind: 'detail'; entryId: string; isDeleteArmed?: boolean }
-  | { kind: 'edit'; entryId: string }
+  | { kind: 'edit'; entryId: string; isDeleteArmed?: boolean }
 
 /** A short status line; `open` names an entry the line offers to open. */
 export type Notice = { tone: 'ok' | 'error'; text: string; open?: string; resume?: true; at?: number } | null
@@ -172,14 +171,14 @@ declare module 'claude-code' {
       isLoading: boolean
       /** True while a save is in flight. */
       isSaving: boolean
-      /** The detail view shows the original snapshot beside the content. */
+      /** The editor page's `⋯` menu shows the original snapshot. */
       showSnapshot: boolean
       /** Notebooks the person toggled away from their default open or closed state. */
       collapsed: string[]
       /** The toolbar's latest formatting command for the editor; `id` grows so the editor applies each once. */
       editorCommand: { id: number; kind: string } | null
-      /** The editor page shows the note rendered under the editor. */
-      editorPreview: boolean
+      /** The heading level under the editor's cursor (normal, h1, h2, h3), what the heading picker shows. */
+      editorHeading: string
     }
   }
 }

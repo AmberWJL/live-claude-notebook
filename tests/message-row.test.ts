@@ -59,12 +59,15 @@ describe('save control under assistant replies', () => {
     // Saved: the list again, with a confirmation that opens the note.
     expect(await pane.find({ type: 'Text', text: /^Saved to General$/ })).toBeDefined()
     expect(await pane.find({ type: 'Markdown', text: /Keep the TTL/ })).toBeUndefined()
+    // Open puts the note in the editor; its source is behind ⋯.
     await pane.press({ key: 'open-saved' })
     expect(await pane.find({ type: 'Text', text: /^Cache rule$/ })).toBeDefined()
+    expect(await pane.find({ key: 'save-edit' })).toBeDefined()
+    await pane.press({ key: 'editor-more' })
     expect(await pane.find({ key: 'view-source' })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /^Captured from assistant message$/ })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /In reply to: What is the cache rule\?/ })).toBeDefined()
-    await pane.press({ key: 'back' })
+    await pane.press({ key: 'home-icon' })
     expect((await pane.find({ key: 'nb:General' }))?.text).toBe('⌄')
     await pane.unmount()
   })

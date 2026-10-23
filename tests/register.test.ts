@@ -38,6 +38,8 @@ describe('live-notebook hooks', () => {
       expect(await ui.find({ type: 'Text', text: /^Keep the TTL under one minute\.$/ })).toBeDefined()
       expect(await ui.find({ key: 'save' })).toBeDefined()
       expect(await ui.find({ key: 'fmt-bold' })).toBeDefined()
+      expect((await ui.find({ key: 'fmt-heading' }))?.props.value).toBe('normal')
+      expect(await ui.find({ key: 'fmt-h1' })).toBeUndefined()
       expect(await ui.find({ key: 'editor' })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: /^excerpt · / })).toBeDefined()
       expect(await ui.find({ key: 'title' })).toBeUndefined()
@@ -57,19 +59,18 @@ describe('live-notebook hooks', () => {
     expect(await ui.find({ type: 'Text', text: /^Draft kept$/ })).toBeDefined()
     await ui.press({ key: 'resume-draft' })
     expect(await ui.find({ type: 'Text', text: /48 characters/ })).toBeDefined()
-    // Toolbar: a heading on the cursor's line.
-    await ui.press({ key: 'fmt-h2' })
+    // Toolbar: the heading picker heads the cursor's line and then shows that level.
+    await ui.select({ key: 'fmt-heading', value: 'h2' })
     expect(await ui.find({ type: 'Text', text: /51 characters/ })).toBeDefined()
+    expect((await ui.find({ key: 'fmt-heading' }))?.props.value).toBe('h2')
     await ui.press({ key: 'fmt-undo' })
-    // A click on the first line moves the cursor there; H1 heads that line, and the preview renders it.
+    expect((await ui.find({ key: 'fmt-heading' }))?.props.value).toBe('normal')
+    // A click on the first line moves the cursor there; Heading 1 heads that line.
     await ui.pointer({ type: 'down', x: 3, y: 0, button: 'left', in: 'editor' })
-    await ui.press({ key: 'fmt-h1' })
-    expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('# Keep the TTL under one minute.\nWhy: cold caches.')
+    await ui.select({ key: 'fmt-heading', value: 'h1' })
+    expect(await ui.find({ type: 'Text', text: /50 characters/ })).toBeDefined()
+    expect((await ui.find({ key: 'fmt-heading' }))?.props.value).toBe('h1')
     await ui.press({ key: 'fmt-undo' })
-    await ui.press({ key: 'toggle-preview' })
-    expect(await ui.find({ type: 'Markdown' })).toBeUndefined()
-    await ui.press({ key: 'toggle-preview' })
-    expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('Keep the TTL under one minute.\nWhy: cold caches.')
     expect(await ui.find({ type: 'Text', text: /48 characters/ })).toBeDefined()
     if ((await ui.find({ key: 'folder' })) === undefined) await ui.press({ key: 'editor-more' })
     await ui.input({ key: 'folder-new', text: 'Caching' })
@@ -109,7 +110,8 @@ describe('live-notebook hooks', () => {
     expect((await ui.find({ key: 'nb:Caching' }))?.text).toBe('⌄')
     expect(await ui.find({ type: 'Text', text: /^Caching$/ })).toBeDefined()
     expect((await ui.find({ key: `entry:${id}` }))?.text).toBe('Keep the TTL under one minute.')
-    expect(await ui.find({ type: 'Text', text: /^#live-notebook-test$/ })).toBeDefined()
+    // Notebook tags belong to the web notebook; the pane shows none.
+    expect(await ui.find({ type: 'Text', text: /^#live-notebook-test$/ })).toBeUndefined()
     expect(engine.toasts).toEqual(['Saved to Caching: Keep the TTL under one minute.'])
 
     // The timers: tags for the notebook and a type for the note.
@@ -117,7 +119,7 @@ describe('live-notebook hooks', () => {
     expect(engine.prompts).toHaveLength(2)
     expect(engine.prompts.some(prompt => prompt.includes('named "Caching"'))).toBe(true)
     expect(engine.prompts.some(prompt => prompt.startsWith('Classify'))).toBe(true)
-    expect(await ui.find({ type: 'Text', text: /^#live-claude-notebook  #caching  #ttl$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^#live-claude-notebook  #caching  #ttl$/ })).toBeUndefined()
     expect(data.get('tags:Caching')).toMatchObject({ tags: ['live-claude-notebook', 'caching', 'ttl'], basis: '1:1760000000000', by: 'model' })
     expect(firstEntry(data)).toMatchObject({ type: 'insight', tags: ['caching', 'ttl'] })
     expect(fs.read(`${NOTES}/${String(stored.file)}`)).toContain('type: insight')
@@ -137,13 +139,21 @@ describe('live-notebook hooks', () => {
     await ui.press({ key: 'clear' })
     expect(await ui.find({ key: 'clear' })).toBeUndefined()
 
-    // The confirmation opens the entry; the detail view shows its type.
+    // The confirmation opens the entry in the editor; its type is behind ⋯.
     await ui.press({ key: 'open-saved' })
     expect(await ui.find({ type: 'Text', text: /^Keep the TTL under one minute\.$/ })).toBeDefined()
+    expect(await ui.find({ key: 'save-edit' })).toBeDefined()
+    expect(await ui.find({ key: 'edit' })).toBeUndefined()
+    expect(await ui.find({ key: 'type' })).toBeUndefined()
+    await ui.press({ key: 'editor-more' })
     expect((await ui.find({ key: 'type' }))?.props.value).toBe('insight')
+    expect(await ui.find({ type: 'Text', text: /^#caching  #ttl$/ })).toBeDefined()
     await ui.select({ key: 'type', value: 'decision' })
     expect(firstEntry(data)).toMatchObject({ type: 'decision' })
-    await ui.press({ key: 'back' })
+    expect(await ui.find({ type: 'Text', text: /characters · Decision$/ })).toBeDefined()
+    // Nothing was typed, so the home icon leaves without keeping an edit.
+    await ui.press({ key: 'home-icon' })
+    expect(await ui.find({ type: 'Text', text: /^Edit kept$/ })).toBeUndefined()
     expect(await ui.find({ key: 'nb:General' })).toBeDefined()
     // Collapsing a notebook hides its rows; an empty one starts collapsed.
     expect((await ui.find({ key: 'nb:General' }))?.text).toBe('›')
@@ -222,16 +232,16 @@ describe('live-notebook hooks', () => {
     expect(await ui.find({ key: 'entry:abcd1234-0000-0000-0000-000000000000' })).toBeUndefined()
     await ui.press({ key: 'filter:all' })
 
-    // Edited in the pane: the snapshot stays and can be shown beside the content.
+    // Opened in the editor: the snapshot stays and can be shown from the ⋯ menu.
     await ui.press({ key: 'entry:e-1' })
+    expect(await ui.find({ type: 'Text', text: /^Blue\/green, revised$/ })).toBeDefined()
+    expect(await ui.find({ key: 'save-edit' })).toBeDefined()
+    expect(await ui.find({ key: 'snapshot' })).toBeUndefined()
+    await ui.press({ key: 'editor-more' })
     expect(await ui.find({ key: 'snapshot' })).toBeDefined()
     expect(await ui.find({ type: 'Markdown', text: /only after health checks pass/ })).toBeUndefined()
     await ui.press({ key: 'snapshot' })
     expect(await ui.find({ type: 'Markdown', text: /only after health checks pass/ })).toBeDefined()
-    await ui.press({ key: 'edit' })
-    expect(await ui.find({ type: 'Text', text: /^Blue\/green, revised$/ })).toBeDefined()
-    expect(await ui.find({ key: 'save-edit' })).toBeDefined()
-    await ui.press({ key: 'editor-more' })
     await ui.select({ key: 'edit-folder', value: 'General' })
     for (const ch of ' Always.') await ui.key({ key: ch, in: 'editor' })
     await ui.press({ key: 'save-edit' })
@@ -240,9 +250,13 @@ describe('live-notebook hooks', () => {
       folder: 'General',
     })
     expect(await ui.find({ type: 'Text', text: /^Saved changes$/ })).toBeDefined()
+    // Saving keeps the note open; with nothing more typed, the home icon keeps no edit.
+    expect(await ui.find({ key: 'save-edit' })).toBeDefined()
+    await ui.press({ key: 'home-icon' })
+    expect(await ui.find({ type: 'Text', text: /^Edit kept$/ })).toBeUndefined()
+    expect(await ui.find({ key: 'entry:e-1' })).toBeDefined()
 
     // Deleted on the web: the file is marked archived, so the entry is archived.
-    await ui.press({ key: 'back' })
     fs.writeFromWeb(`${NOTES}/General/blue-green-deploy--e-1.md`, '---\nid: e-1\narchived: true\n---\n\nwhatever\n')
     await clock.advance(3_000)
     expect(data.get('entry:e-1')).toMatchObject({ status: 'archived' })
@@ -338,6 +352,7 @@ describe('live-notebook hooks', () => {
       },
     })
     await ui.press({ key: 'open-saved' })
+    await ui.press({ key: 'editor-more' })
     expect(await ui.find({ type: 'Text', text: /In reply to: How do I invalidate the cache\?/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^notes\/General\// })).toBeDefined()
     expect(await ui.find({ key: 'view-source' })).toBeUndefined()
@@ -373,22 +388,28 @@ describe('live-notebook hooks', () => {
     expect(await narrow.find({ key: 'new-note' })).toBeDefined()
     await narrow.press({ key: 'entry:e-1' })
     expect(await narrow.find({ type: 'Text', text: /^Blue\/green deploy$/ })).toBeDefined()
+    expect(await narrow.find({ key: 'save-edit' })).toBeDefined()
     expect(await narrow.find({ key: 'new-note' })).toBeUndefined()
     await narrow.unmount()
     const wide = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', requestId: PANE, props: { ...PANE_PROPS, bodyColumns: 140 } })
-    // Wide: the whole home page beside the open note, and beside the editor too.
+    // Wide: the whole home page beside the editor; the open note's row is marked, not a button.
     expect(await wide.find({ key: 'new-note' })).toBeDefined()
     expect(await wide.find({ key: 'web' })).toBeDefined()
     expect(await wide.find({ key: 'search' })).toBeDefined()
     expect(await wide.find({ key: 'filter:all' })).toBeDefined()
     expect(await wide.find({ type: 'Text', text: /^Ops$/ })).toBeDefined()
-    expect((await wide.find({ key: 'row:e-1' }))?.props.borderColor).toBe('claude')
-    await wide.press({ key: 'edit' })
-    expect(await wide.find({ key: 'new-note' })).toBeDefined()
-    expect(await wide.find({ key: 'fmt-h2' })).toBeDefined()
+    expect(await wide.find({ key: 'row:e-1' })).toBeDefined()
+    expect(await wide.find({ key: 'entry:e-1' })).toBeUndefined()
+    expect(await wide.find({ key: 'fmt-heading' })).toBeDefined()
+    expect(await wide.find({ key: 'save-edit' })).toBeDefined()
+    // Something typed, then the home icon: the edit is kept and Resume returns to it.
+    await wide.key({ key: '!', in: 'editor' })
     await wide.press({ key: 'home-icon' })
     expect(await wide.find({ type: 'Text', text: /^Edit kept$/ })).toBeDefined()
     expect(await wide.find({ key: 'entry:e-1' })).toBeDefined()
+    await wide.press({ key: 'resume-draft' })
+    expect(await wide.find({ key: 'save-edit' })).toBeDefined()
+    expect(await wide.find({ key: 'entry:e-1' })).toBeUndefined()
     await wide.unmount()
   })
 })

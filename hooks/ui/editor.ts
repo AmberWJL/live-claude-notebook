@@ -49,8 +49,17 @@ export type EditorCommand =
 
 const HISTORY_MAX = 60
 
-/** What the module posts to the hooks module after a change. */
-export type EditorPost = { type: 'content'; draftId: string; text: string }
+/** The heading level of the cursor's line; what the toolbar's heading picker shows. */
+export type EditorHeading = 'normal' | 'h1' | 'h2' | 'h3'
+
+/**
+ * What the module posts to the hooks module: the text after every change,
+ * with the heading under the cursor; or the heading alone when only the
+ * cursor moved to a line of another level.
+ */
+export type EditorPost =
+  | { type: 'content'; draftId: string; text: string; heading: EditorHeading }
+  | { type: 'cursor'; draftId: string; heading: EditorHeading }
 
 export const EDITOR_KEY = 'editor'
 
@@ -58,6 +67,12 @@ export function stateFrom(draftId: string, text: string): EditorState {
   const lines = text.replace(/\r\n?/g, '\n').split('\n')
   const row = lines.length - 1
   return { draftId, lines, row, col: lines[row]?.length ?? 0, top: 0 }
+}
+
+/** The heading level of the cursor's line. */
+export function headingAt(state: EditorState): EditorHeading {
+  const level = /^(#{1,3})\s/.exec(state.lines[state.row] ?? '')?.[1]?.length
+  return level === 1 ? 'h1' : level === 2 ? 'h2' : level === 3 ? 'h3' : 'normal'
 }
 
 export function textOf(state: EditorState): string {
@@ -384,6 +399,18 @@ export function render(state: EditorState, surface: ClientSurface<EditorState>, 
   return Box({ flexDirection: 'column', children })
 }
 
+/** Tells the hooks module what changed: the text (with the cursor's heading), or the heading alone. */
+function postChange(surface: ClientSurface<EditorState>, previous: EditorState, next: EditorState): void {
+  const heading = headingAt(next)
+  if (textOf(previous) !== textOf(next)) {
+    const post: EditorPost = { type: 'content', draftId: next.draftId, text: textOf(next), heading }
+    surface.post(post)
+  } else if (headingAt(previous) !== heading) {
+    const post: EditorPost = { type: 'cursor', draftId: next.draftId, heading }
+    surface.post(post)
+  }
+}
+
 const Editor: ClientModule<EditorProps, EditorState> = (props, surface) => {
   let state = surface.state
   const command = props.command ?? null
@@ -391,15 +418,17 @@ const Editor: ClientModule<EditorProps, EditorState> = (props, surface) => {
     // A fresh text starts past the toolbar's latest command, so it is never replayed.
     state = { ...stateFrom(props.draftId, props.text), commandId: command?.id ?? 0 }
     surface.setState(state)
+    const heading = headingAt(state)
+    if (heading !== 'normal') {
+      const post: EditorPost = { type: 'cursor', draftId: state.draftId, heading }
+      surface.post(post)
+    }
   }
   if (command !== null && command.id !== (state.commandId ?? 0)) {
     const width = Math.max(10, surface.columns || 60)
     const height = Math.max(3, surface.rows || 8)
     const applied = { ...withTop(applyCommand(state, command.kind), width, height), commandId: command.id }
-    if (textOf(applied) !== textOf(state)) {
-      const post: EditorPost = { type: 'content', draftId: applied.draftId, text: textOf(applied) }
-      surface.post(post)
-    }
+    postChange(surface, state, applied)
     state = applied
     surface.setState(state)
   }
@@ -410,7 +439,9 @@ const Editor: ClientModule<EditorProps, EditorState> = (props, surface) => {
     const width = Math.max(10, surface.columns || 60)
     const height = Math.max(3, surface.rows || 8)
     const next = pointAt(current, event.x, event.y, width, height)
-    if (next.row !== current.row || next.col !== current.col || next.top !== current.top) surface.setState(next)
+    if (next.row === current.row && next.col === current.col && next.top === current.top) return
+    surface.setState(next)
+    postChange(surface, current, next)
   })
   surface.onKey(event => {
     const width = Math.max(10, surface.columns || 60)
@@ -418,10 +449,7 @@ const Editor: ClientModule<EditorProps, EditorState> = (props, surface) => {
     const next = applyKey(current, event, width, height)
     if (next === current) return
     surface.setState(next)
-    if (textOf(next) !== textOf(current)) {
-      const post: EditorPost = { type: 'content', draftId: next.draftId, text: textOf(next) }
-      surface.post(post)
-    }
+    postChange(surface, current, next)
   })
   return render(current, surface, props.placeholder ?? 'Click here, then type. Esc when done.')
 }

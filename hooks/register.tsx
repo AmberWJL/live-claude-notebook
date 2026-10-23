@@ -61,8 +61,6 @@ const TITLE = 'Live Notebook'
 const EDITOR_MIN_ROWS = 12
 /** Rows of the pane the editor page needs besides the editor. */
 const EDITOR_CHROME_ROWS = 11
-/** The fewest rows the editor keeps while the preview shares the pane with it. */
-const EDITOR_PREVIEW_MIN_ROWS = 6
 /** The width asked for while a note is being written or edited. */
 const EDITOR_COLUMNS = 110
 /** How often the notes directory is checked for edits made on the web. */
@@ -98,7 +96,7 @@ const isSavingAtom = atom({ plugin: 'live-notebook', key: 'isSaving' } as const,
 const showSnapshotAtom = atom({ plugin: 'live-notebook', key: 'showSnapshot' } as const, false)
 const collapsedAtom = atom({ plugin: 'live-notebook', key: 'collapsed' } as const, [] as string[])
 const editorCommandAtom = atom({ plugin: 'live-notebook', key: 'editorCommand' } as const, null as { id: number; kind: string } | null)
-const editorPreviewAtom = atom({ plugin: 'live-notebook', key: 'editorPreview' } as const, true)
+const editorHeadingAtom = atom({ plugin: 'live-notebook', key: 'editorHeading' } as const, 'normal')
 
 type Dollar = EngineInterface
 
@@ -194,8 +192,14 @@ async function showHome($: Dollar): Promise<void> {
   // Leaving the editor by the home icon keeps what was written; Resume returns to it.
   if (view.kind === 'confirm' && (await read($, draftAtom)) !== null) {
     await flashNotice($, { tone: 'ok', text: 'Draft kept', resume: true })
-  } else if (view.kind === 'edit' && (await read($, editAtom)) !== null) {
-    await flashNotice($, { tone: 'ok', text: 'Edit kept', resume: true })
+  } else if (view.kind === 'edit') {
+    const edit = await read($, editAtom)
+    const entry = edit ? (await read($, entriesAtom)).find(one => one.id === edit.entryId) : undefined
+    if (edit && entry && entry.content === edit.content && entry.folder === edit.folder) {
+      await update($, editAtom, () => null)
+    } else if (edit) {
+      await flashNotice($, { tone: 'ok', text: 'Edit kept', resume: true })
+    }
   }
 }
 
@@ -233,14 +237,10 @@ async function formatEditor($: Dollar, kind: string): Promise<void> {
   await update($, editorCommandAtom, current => ({ id: (current?.id ?? 0) + 1, kind }))
 }
 
-/** Shows or hides the rendered note under the editor. */
-async function togglePreview($: Dollar): Promise<void> {
-  await update($, editorPreviewAtom, isShown => !(isShown ?? true))
-}
-
 /** Opens (or widens) the pane for writing. */
 async function openForEditing($: Dollar): Promise<void> {
   await update($, namingNotebookAtom, () => false)
+  await update($, editorHeadingAtom, () => 'normal')
   await $.ui.open({ id: PANE, title: TITLE, focus: true, columns: EDITOR_COLUMNS, rows: 30 })
 }
 
@@ -729,8 +729,14 @@ async function startBlankDraft($: Dollar): Promise<void> {
 
 /** The editor posted new text: it belongs to the draft or the edit whose id it names. */
 async function acceptEditorText($: Dollar, post: EditorPost): Promise<void> {
-  await update($, draftAtom, draft => (draft && draft.id === post.draftId ? { ...draft, content: post.text } : draft ?? null))
-  await update($, editAtom, edit => (edit && edit.id === post.draftId ? { ...edit, content: post.text } : edit ?? null))
+  const [draft, edit] = await Promise.all([read($, draftAtom), read($, editAtom)])
+  if (draft?.id !== post.draftId && edit?.id !== post.draftId) return
+  if (post.type === 'content') {
+    const { text } = post
+    await update($, draftAtom, current => (current && current.id === post.draftId ? { ...current, content: text } : current ?? null))
+    await update($, editAtom, current => (current && current.id === post.draftId ? { ...current, content: text } : current ?? null))
+  }
+  await update($, editorHeadingAtom, () => post.heading)
 }
 
 async function cancelDraft($: Dollar): Promise<void> {
@@ -782,17 +788,16 @@ async function confirmSave($: Dollar): Promise<void> {
   }
 }
 
-async function openEntry($: Dollar, entryId: string): Promise<void> {
-  await setNotice($, null)
-  await update($, showSnapshotAtom, () => false)
-  await setView($, { kind: 'detail', entryId })
-}
-
+/** Opens a note in the editor page; a kept edit of the same note is resumed. */
 async function startEdit($: Dollar, entryId: string): Promise<void> {
   const entry = (await read($, entriesAtom)).find(one => one.id === entryId)
   if (!entry) return
-  await update($, editAtom, () => ({ id: crypto.randomUUID(), entryId, content: entry.content, folder: entry.folder }))
+  const kept = await read($, editAtom)
+  if (kept?.entryId !== entryId) {
+    await update($, editAtom, () => ({ id: crypto.randomUUID(), entryId, content: entry.content, folder: entry.folder }))
+  }
   await setNotice($, null)
+  await update($, showSnapshotAtom, () => false)
   await setView($, { kind: 'edit', entryId })
   await openForEditing($)
 }
@@ -813,9 +818,7 @@ async function saveEdit($: Dollar): Promise<void> {
       fileNote = ` (file not written: ${messageOf(error)})`
     }
     await afterChange($)
-    await update($, editAtom, () => null)
     await flashNotice($, { tone: 'ok', text: `Saved changes${fileNote}` })
-    await setView($, { kind: 'detail', entryId: entry.id })
   } catch (error) {
     await setNotice($, { tone: 'error', text: `${messageOf(error)} Your changes are still here.` })
   } finally {
@@ -823,16 +826,15 @@ async function saveEdit($: Dollar): Promise<void> {
   }
 }
 
+/** Drops the changes and leaves the editor page. */
 async function cancelEdit($: Dollar): Promise<void> {
-  const edit = await read($, editAtom)
   await update($, editAtom, () => null)
   await setNotice($, null)
-  if (edit) await setView($, { kind: 'detail', entryId: edit.entryId })
-  else await showHome($)
+  await showHome($)
 }
 
 async function armDelete($: Dollar, entryId: string, isDeleteArmed: boolean): Promise<void> {
-  await setView($, { kind: 'detail', entryId, isDeleteArmed })
+  await setView($, { kind: 'edit', entryId, isDeleteArmed })
 }
 
 async function archiveEntry($: Dollar, entryId: string): Promise<void> {
@@ -848,6 +850,7 @@ async function archiveEntry($: Dollar, entryId: string): Promise<void> {
       }
     }
     await afterChange($)
+    await update($, editAtom, () => null)
     await flashNotice($, { tone: 'ok', text: 'Archived' })
     await setView($, { kind: 'home' })
   } catch (error) {
@@ -874,6 +877,7 @@ async function deleteEntry($: Dollar, entryId: string): Promise<void> {
       })
     }
     await afterChange($)
+    await update($, editAtom, () => null)
     await flashNotice($, { tone: 'ok', text: 'Deleted' })
     await setView($, { kind: 'home' })
   } catch (error) {
@@ -895,12 +899,10 @@ function actionsOf($: Dollar): PaneActions {
     setDraftFolder: folder => void setDraftFolder($, folder),
     addFolder: name => void addFolder($, name),
     format: kind => void formatEditor($, kind),
-    togglePreview: () => void togglePreview($),
     save: () => void confirmSave($),
     cancel: () => void cancelDraft($),
     resume: () => void resumeEditing($),
-    open: entryId => void openEntry($, entryId),
-    edit: entryId => void startEdit($, entryId),
+    open: entryId => void startEdit($, entryId),
     setType: (entryId, type) => void setEntryType($, entryId, type),
     toggleSnapshot: () => void toggleSnapshot($),
     viewSource: entryId => void viewSource($, entryId),
@@ -915,13 +917,10 @@ function actionsOf($: Dollar): PaneActions {
 }
 
 function isEditorPost(data: unknown): data is EditorPost {
-  return (
-    typeof data === 'object' &&
-    data !== null &&
-    (data as Record<string, unknown>).type === 'content' &&
-    typeof (data as Record<string, unknown>).draftId === 'string' &&
-    typeof (data as Record<string, unknown>).text === 'string'
-  )
+  if (typeof data !== 'object' || data === null) return false
+  const record = data as Record<string, unknown>
+  if (typeof record.draftId !== 'string' || typeof record.heading !== 'string') return false
+  return record.type === 'cursor' || (record.type === 'content' && typeof record.text === 'string')
 }
 
 // ---------------------------------------------------------------------------
@@ -1037,7 +1036,7 @@ export const register: Register = on => {
     return { text: args === '' ? 'Live Notebook opened.' : `Live Notebook opened, searching for "${args}".` }
   })
 
-  // The content editor posts its text after every change.
+  // The content editor posts its text after every change, and the heading under its cursor.
   on('ui.message', { element: EDITOR_KEY }, async ($, e, next) => {
     if (isEditorPost(e.data)) await acceptEditorText($, e.data)
     return next(e)
@@ -1064,21 +1063,20 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const [view, entries, draft, edit, folders, tags, server, candidates, query, notice, currentSessionId] =
+    const [view, entries, draft, edit, folders, server, candidates, query, notice, currentSessionId] =
       await Promise.all([
         read($, viewAtom),
         read($, entriesAtom),
         read($, draftAtom),
         read($, editAtom),
         read($, foldersAtom),
-        read($, tagsAtom),
         read($, serverAtom),
         read($, candidatesAtom),
         read($, queryAtom),
         read($, noticeAtom),
         $.session.id(),
       ])
-    const [typeFilter, isNamingNotebook, isLoading, isSaving, showSnapshot, notesRoot, collapsed, editorCommand, isPreview] =
+    const [typeFilter, isNamingNotebook, isLoading, isSaving, showSnapshot, notesRoot, collapsed, editorCommand, editorHeading] =
       await Promise.all([
         read($, typeFilterAtom),
         read($, namingNotebookAtom),
@@ -1088,13 +1086,10 @@ export const register: Register = on => {
         read($, notesRootAtom),
         read($, collapsedAtom),
         read($, editorCommandAtom),
-        read($, editorPreviewAtom),
+        read($, editorHeadingAtom),
       ])
-    // With the preview showing, the editor takes half of the room and the preview the rest.
-    const editorRoom = (e.props.scroll?.bodyRows ?? 0) - EDITOR_CHROME_ROWS
-    const editorRows = isPreview
-      ? Math.max(EDITOR_PREVIEW_MIN_ROWS, Math.floor(editorRoom / 2))
-      : Math.max(EDITOR_MIN_ROWS, editorRoom)
+    const bodyRows = e.props.scroll?.bodyRows ?? 0
+    const editorRows = Math.max(EDITOR_MIN_ROWS, bodyRows - EDITOR_CHROME_ROWS)
     if (e.surface === 'mobile') return renderReadOnlyPane($.ui.resolve(e), entries)
 
     // The editor is a Client; its module path must be a literal in this file.
@@ -1114,7 +1109,6 @@ export const register: Register = on => {
         draft,
         edit,
         folders,
-        tags,
         server,
         candidates,
         query,
@@ -1127,8 +1121,9 @@ export const register: Register = on => {
         collapsed,
         notesRoot,
         width: e.props.bodyColumns,
+        rows: bodyRows,
         editorRows,
-        isPreview,
+        editorHeading,
         currentSessionId,
         ...(editor === undefined ? {} : { editor }),
       },

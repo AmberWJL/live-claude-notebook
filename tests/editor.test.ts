@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { applyCommand, applyKey, pointAt, stateFrom, textOf, visualRows } from '../hooks/ui/editor'
+import { applyCommand, applyKey, headingAt, pointAt, stateFrom, textOf, visualRows } from '../hooks/ui/editor'
 
 const W = 20
 const H = 5
@@ -86,5 +86,17 @@ describe('editor state', () => {
     expect(state.row).toBe(12 - H)
     state = pointAt(stateFrom('d2', long), 30, 0, W, H)
     expect([state.row, state.col]).toEqual([0, 19])
+  })
+
+  test('headingAt reads the level of the cursor line', async () => {
+    let state = stateFrom('d1', '# Title\n## Sub\n### Small\nbody')
+    expect(headingAt(state)).toBe('normal')
+    state = pointAt(state, 0, 0, W, H)
+    expect(headingAt(state)).toBe('h1')
+    state = pointAt(state, 0, 1, W, H)
+    expect(headingAt(state)).toBe('h2')
+    state = pointAt(state, 0, 2, W, H)
+    expect(headingAt(state)).toBe('h3')
+    expect(headingAt(applyCommand(state, 'normal'))).toBe('normal')
   })
 })
