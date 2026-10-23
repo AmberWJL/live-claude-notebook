@@ -185,7 +185,24 @@ async function afterChange($: Dollar): Promise<void> {
 async function showHome($: Dollar): Promise<void> {
   await update($, queryAtom, () => '')
   await update($, typeFilterAtom, () => '')
+  await update($, namingNotebookAtom, () => false)
+  const view = await read($, viewAtom)
   await setView($, { kind: 'home' })
+  // Leaving the editor by the home icon keeps what was written; Resume returns to it.
+  if (view.kind === 'confirm' && (await read($, draftAtom)) !== null) {
+    await flashNotice($, { tone: 'ok', text: 'Draft kept', resume: true })
+  } else if (view.kind === 'edit' && (await read($, editAtom)) !== null) {
+    await flashNotice($, { tone: 'ok', text: 'Edit kept', resume: true })
+  }
+}
+
+async function resumeEditing($: Dollar): Promise<void> {
+  const [draft, edit] = await Promise.all([read($, draftAtom), read($, editAtom)])
+  await setNotice($, null)
+  if (edit) await setView($, { kind: 'edit', entryId: edit.entryId })
+  else if (draft) await setView($, { kind: 'confirm' })
+  else return
+  await openForEditing($)
 }
 
 
@@ -708,6 +725,7 @@ async function acceptEditorText($: Dollar, post: EditorPost): Promise<void> {
 
 async function cancelDraft($: Dollar): Promise<void> {
   await update($, draftAtom, () => null)
+  await update($, editAtom, () => null)
   await setNotice($, null)
   await setView($, { kind: 'home' })
 }
@@ -869,6 +887,7 @@ function actionsOf($: Dollar): PaneActions {
     format: kind => void formatEditor($, kind),
     save: () => void confirmSave($),
     cancel: () => void cancelDraft($),
+    resume: () => void resumeEditing($),
     open: entryId => void openEntry($, entryId),
     edit: entryId => void startEdit($, entryId),
     setType: (entryId, type) => void setEntryType($, entryId, type),

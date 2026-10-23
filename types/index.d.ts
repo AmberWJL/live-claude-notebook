@@ -142,7 +142,7 @@ export type NotebookView =
   | { kind: 'edit'; entryId: string }
 
 /** A short status line; `open` names an entry the line offers to open. */
-export type Notice = { tone: 'ok' | 'error'; text: string; open?: string; at?: number } | null
+export type Notice = { tone: 'ok' | 'error'; text: string; open?: string; resume?: true; at?: number } | null
 
 declare module 'claude-code' {
   interface PluginState {

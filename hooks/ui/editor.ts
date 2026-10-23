@@ -336,13 +336,17 @@ export function render(state: EditorState, surface: ClientSurface<EditorState>, 
     if (one === undefined) continue
     const logical = shown.lines[one.row] ?? ''
     const isHeading = /^#{1,6}\s/.test(logical)
+    const isQuote = /^>\s?/.test(logical)
     const marker = one.start === 0 ? (/^(\s*[-*+]\s|\s*\d+[.)]\s|>\s?)/.exec(logical)?.[0] ?? '') : ''
     if (index !== cursor) {
       const body = one.text.slice(marker.length)
       children.push(
         marker === ''
           ? Text({ wrap: 'truncate', bold: isHeading, children: one.text === '' ? ' ' : one.text })
-          : Box({ flexDirection: 'row', children: [Text({ color: 'claude', children: marker }), Text({ wrap: 'truncate', children: body })] }),
+          : Box({
+              flexDirection: 'row',
+              children: [Text({ color: 'claude', children: marker }), Text({ wrap: 'truncate', italic: isQuote, dimColor: isQuote, children: body })],
+            }),
       )
       continue
     }

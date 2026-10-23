@@ -70,6 +70,8 @@ export type PaneActions = {
   format: (kind: string) => void
   save: () => void
   cancel: () => void
+  /** Back to the draft or edit the person left with the home icon. */
+  resume: () => void
   open: (entryId: string) => void
   edit: (entryId: string) => void
   setType: (entryId: string, type: EntryType) => void
@@ -151,6 +153,11 @@ export function renderNotebookPane(
       {notice.open !== undefined && (
         <Button key="open-saved" plain onPress={() => actions.open(notice.open ?? '')}>
           Open
+        </Button>
+      )}
+      {notice.resume === true && (
+        <Button key="resume-draft" plain onPress={() => actions.resume()}>
+          Resume
         </Button>
       )}
       <Button key="dismiss-notice" plain dimColor onPress={() => actions.dismissNotice()}>
@@ -297,7 +304,7 @@ export function renderNotebookPane(
       <Box flexDirection="column">
         <Box justifyContent="space-between" gap={1}>
           <Button key="back" plain dimColor onPress={() => actions.home()}>
-            ← Back to notes
+            ⌂ Back to notes
           </Button>
           <Box gap={1}>
             <Button key="edit" plain onPress={() => actions.edit(entry.id)}>
@@ -426,12 +433,6 @@ export function renderNotebookPane(
     title?: string
   }): RenderElement {
     const title = options.title ?? (options.content.trim() === '' ? 'Untitled' : deriveTitle(options.content))
-    const headings = [
-      { value: 'normal', label: 'Normal text' },
-      { value: 'h1', label: 'Heading 1' },
-      { value: 'h2', label: 'Heading 2' },
-      { value: 'h3', label: 'Heading 3' },
-    ]
     const tool = (key: string, label: string, kind: string) => (
       <Button key={key} plain onPress={() => actions.format(kind)}>
         {label}
@@ -440,13 +441,18 @@ export function renderNotebookPane(
     return (
       <Box flexDirection="column">
         <Box justifyContent="space-between" gap={1}>
-          <Box flexDirection="column">
-            <Box gap={1}>
-              <Text dimColor>{options.folder}</Text>
-              <Text dimColor>/</Text>
-              <Text bold>{oneLine(title, Math.max(12, measure - options.folder.length - 16))}</Text>
+          <Box gap={1}>
+            <Button key="home-icon" plain dimColor onPress={() => actions.home()}>
+              ⌂
+            </Button>
+            <Box flexDirection="column">
+              <Box gap={1}>
+                <Text dimColor>{options.folder}</Text>
+                <Text dimColor>/</Text>
+                <Text bold>{oneLine(title, Math.max(12, measure - options.folder.length - 20))}</Text>
+              </Box>
+              <Text dimColor>{longDate(options.date).replace(/, \d\d:\d\d$/, '')}</Text>
             </Box>
-            <Text dimColor>{longDate(options.date).replace(/, \d\d:\d\d$/, '')}</Text>
           </Box>
           <Box gap={1}>
             <Button key="editor-more" plain dimColor onPress={() => actions.toggleNewNotebook()}>
@@ -458,7 +464,7 @@ export function renderNotebookPane(
           </Box>
         </Box>
         {model.isNamingNotebook && (
-          <Box flexDirection={isNarrow ? 'column' : 'row'} gap={1} marginTop={1}>
+          <Box flexDirection="column" marginTop={1}>
             <Select key={options.folderKey} label="Notebook" options={folderOptions} value={options.folder} onSelect={options.onFolder} />
             <Input
               key={`${options.folderKey}-new`}
@@ -469,21 +475,23 @@ export function renderNotebookPane(
               }}
             />
             <Button key={options.cancelKey} plain dimColor onPress={() => options.onCancel()}>
-              Discard
+              Discard this note
             </Button>
           </Box>
         )}
         <Box gap={1} flexWrap="wrap" marginTop={1}>
-          <Select key="fmt-heading" options={headings} value="normal" onSelect={value => actions.format(value)} />
+          {tool('fmt-h1', 'H1', 'h1')}
+          {tool('fmt-h2', 'H2', 'h2')}
+          {tool('fmt-h3', 'H3', 'h3')}
           {tool('fmt-bold', 'B', 'bold')}
           {tool('fmt-italic', 'I', 'italic')}
           {tool('fmt-code', '</>', 'code')}
-          {tool('fmt-link', '🔗', 'link')}
-          {tool('fmt-bullet', '• list', 'bullet')}
-          {tool('fmt-number', '1. list', 'number')}
-          {tool('fmt-quote', '❝', 'quote')}
-          {tool('fmt-undo', '↶', 'undo')}
-          {tool('fmt-redo', '↷', 'redo')}
+          {tool('fmt-link', 'Link', 'link')}
+          {tool('fmt-bullet', '• List', 'bullet')}
+          {tool('fmt-number', '1. List', 'number')}
+          {tool('fmt-quote', 'Quote', 'quote')}
+          {tool('fmt-undo', 'Undo', 'undo')}
+          {tool('fmt-redo', 'Redo', 'redo')}
         </Box>
         <Box flexDirection="column" borderStyle="round" borderDimColor paddingX={1} marginTop={1}>
           {model.editor ?? (
@@ -499,10 +507,55 @@ export function renderNotebookPane(
     )
   }
 
+  /** The notebooks and their notes as a compact column, drawn beside a page on a wide pane. */
+  function overviewColumn(selectedId?: string): RenderElement {
+    return (
+      <Box flexDirection="column" width={34}>
+        <Button key="home-column" plain dimColor onPress={() => actions.home()}>
+          ⌂ Notebooks
+        </Button>
+        {folders.names.map(name => {
+          const notes = activeIn(model.entries, name)
+          const closed = isCollapsed(name, notes.length, model.collapsed)
+          return (
+            <Box key={`nb-col:${name}`} flexDirection="column" marginTop={1}>
+              <Box justifyContent="space-between" gap={1}>
+                <Box gap={1}>
+                  <Button key={`nb:${name}`} plain onPress={() => actions.toggleNotebook(name)}>
+                    {closed ? '›' : '⌄'}
+                  </Button>
+                  <Text bold>{name}</Text>
+                </Box>
+                <Text dimColor>{String(notes.length)}</Text>
+              </Box>
+              {!closed &&
+                notes.map((one, index) =>
+                  entryRow(one, { withFolder: false, isSelected: one.id === selectedId, compact: true, isFirst: index === 0 }),
+                )}
+            </Box>
+          )
+        })}
+      </Box>
+    )
+  }
+
+  /** A page beside the overview when the pane is wide enough for both. */
+  function withOverview(page: RenderElement, selectedId?: string): RenderElement {
+    if (width < WIDE) return page
+    return (
+      <Box flexDirection="row" gap={2}>
+        {overviewColumn(selectedId)}
+        <Box flexDirection="column" flexGrow={1}>
+          {page}
+        </Box>
+      </Box>
+    )
+  }
+
   if (model.view.kind === 'confirm' && model.draft) {
     const draft = model.draft
     const isBlank = draft.source.snapshot === ''
-    return editorPage({
+    return withOverview(editorPage({
       folder: draft.folder,
       content: draft.content,
       date: draft.source.capturedAt,
@@ -517,13 +570,13 @@ export function renderNotebookPane(
       cancelKey: 'cancel',
       folderKey: 'folder',
       saveLabel: 'Save',
-    })
+    }))
   }
 
   if (model.view.kind === 'edit' && model.edit) {
     const edit = model.edit
     const entry = model.entries.find(one => one.id === edit.entryId)
-    return editorPage({
+    return withOverview(editorPage({
       folder: edit.folder,
       content: edit.content,
       date: entry?.updatedAt ?? Date.now(),
@@ -537,30 +590,14 @@ export function renderNotebookPane(
       folderKey: 'edit-folder',
       saveLabel: 'Save changes',
       ...(entry === undefined ? {} : { title: entry.title }),
-    })
+    }), edit.entryId)
   }
 
   if (model.view.kind === 'detail') {
     const { entryId } = model.view
     const entry = model.entries.find(one => one.id === entryId)
     if (entry) {
-      const detail = detailView(entry, model.view.isDeleteArmed === true)
-      if (width < WIDE) return detail
-      // Wide pane: the notebook's notes stay beside the open one.
-      const siblings = activeIn(model.entries, entry.folder)
-      return (
-        <Box flexDirection="row" gap={2}>
-          <Box flexDirection="column" width={34}>
-            <Text dimColor>{`${entry.folder} · ${siblings.length}`}</Text>
-            {siblings.map((one, index) =>
-              entryRow(one, { withFolder: false, isSelected: one.id === entry.id, compact: true, isFirst: index === 0 }),
-            )}
-          </Box>
-          <Box flexDirection="column" flexGrow={1}>
-            {detail}
-          </Box>
-        </Box>
-      )
+      return withOverview(detailView(entry, model.view.isDeleteArmed === true), entry.id)
     }
   }
 
