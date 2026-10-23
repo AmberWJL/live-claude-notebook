@@ -316,37 +316,38 @@ input {
   flex: 1;
 }
 
-/* Toast UI Editor: a document, not a boxed form. */
-#editor .toastui-editor-defaultUI {
+/* Vditor: make it read like a document, not a toolbar-heavy editor. */
+#editor.vditor {
   border: 0;
+  background: transparent;
 }
 
-#editor .toastui-editor-defaultUI-toolbar {
+#editor .vditor-toolbar {
   background: transparent;
   border-bottom: 1px solid var(--line);
-  padding-left: 0;
+  padding-left: 0 !important;
 }
 
-#editor .toastui-editor-toolbar-group {
+#editor .vditor-content,
+#editor .vditor-ir {
   background: transparent;
 }
 
-#editor .toastui-editor-main .ProseMirror,
-#editor .toastui-editor-contents {
+#editor .vditor-reset {
   font-family: var(--sans);
   font-size: 16px;
   line-height: 1.65;
   color: var(--text);
+  padding: 10px 0 !important;
 }
 
-#editor .toastui-editor-contents code,
-#editor .toastui-editor-contents pre {
-  font-family: var(--mono);
-}
-
-#editor .toastui-editor-mode-switch {
+#editor .vditor-ir pre.vditor-reset {
   background: transparent;
-  border-top: 0;
+}
+
+#editor .vditor-reset code,
+#editor .vditor-reset pre {
+  font-family: var(--mono);
 }
 
 @media (max-width: 760px) {

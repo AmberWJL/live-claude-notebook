@@ -1,7 +1,9 @@
 /* Live Notebook web app: notebooks and notes in the sidebar, one note open
- * in a Toast UI markdown editor (markdown mode only, with a preview tab), autosaved to its markdown file
- * through the local server. Plain script, no build step. */
+ * in a Vditor editor (instant rendering: markdown markers show only where the
+ * cursor is), autosaved to its markdown file through the local server. Plain
+ * script, no build step. */
 ;(() => {
+  const VDITOR_CDN = 'https://unpkg.com/vditor@4.0.1'
   const $ = id => document.getElementById(id)
   const els = {
     tree: $('tree'),
@@ -199,38 +201,59 @@
     return new Promise(resolve => {
       if (state.editor) {
         state.quiet = true
-        state.editor.setMarkdown(initial, false)
+        state.editor.setValue(initial, true)
         state.quiet = false
         resolve(state.editor)
         return
       }
       const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-      const editor = new toastui.Editor({
-        el: $('editor'),
+      // Instant rendering: the note reads as formatted text, and a block's
+      // markdown markers show only while the cursor is in it. No mode switch.
+      const editor = new Vditor('editor', {
+        mode: 'ir',
+        cdn: VDITOR_CDN,
+        lang: 'en_US',
         height: 'auto',
-        minHeight: '420px',
-        initialEditType: 'markdown',
-        previewStyle: 'tab',
-        hideModeSwitch: true,
-        usageStatistics: false,
-        autofocus: false,
-        initialValue: initial,
+        minHeight: 420,
+        value: initial,
         placeholder: 'Write in markdown, or just write.',
-        theme: isDark ? 'dark' : 'light',
-        toolbarItems: [
-          ['heading', 'bold', 'italic', 'strike'],
-          ['hr', 'quote'],
-          ['ul', 'ol', 'task'],
-          ['table', 'link', 'code', 'codeblock'],
+        theme: isDark ? 'dark' : 'classic',
+        cache: { enable: false },
+        counter: { enable: false },
+        toolbarConfig: { pin: false },
+        toolbar: [
+          'headings',
+          'bold',
+          'italic',
+          'strike',
+          '|',
+          'line',
+          'quote',
+          '|',
+          'list',
+          'ordered-list',
+          'check',
+          '|',
+          'table',
+          'link',
+          'inline-code',
+          'code',
+          '|',
+          'undo',
+          'redo',
         ],
-        events: {
-          change: () => {
-            if (!state.quiet) markDirty()
-          },
+        preview: {
+          theme: { current: isDark ? 'dark' : 'light' },
+          hljs: { lineNumber: false, style: isDark ? 'native' : 'github' },
+        },
+        input: () => {
+          if (!state.quiet) markDirty()
+        },
+        after: () => {
+          state.editor = editor
+          resolve(editor)
         },
       })
-      state.editor = editor
-      resolve(editor)
     })
   }
 
@@ -244,7 +267,7 @@
 
   async function save() {
     if (!state.open || !state.dirty || !state.editor) return
-    const content = state.editor.getMarkdown()
+    const content = state.editor.getValue()
     let title = els.title.value.trim()
     if (!state.titleTouched || title === '' || title === 'Untitled') {
       // Not named by the person: the note is titled from its first line.
@@ -441,7 +464,7 @@
     if (state.dirty && state.open && state.editor) {
       navigator.sendBeacon?.(
         `/api/note?path=${encodeURIComponent(state.open.path)}`,
-        new Blob([JSON.stringify({ content: state.editor.getMarkdown(), title: els.title.value.trim() })], {
+        new Blob([JSON.stringify({ content: state.editor.getValue(), title: els.title.value.trim() })], {
           type: 'application/json',
         }),
       )

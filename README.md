@@ -47,8 +47,10 @@ A small local server (Node, no dependencies, bound to 127.0.0.1) starts
 with every session. **Open Live Notebook** at the top of the pane, or
 `/notebook web`, opens it in your browser: notebooks and notes in a sidebar,
 each notebook with its tags, and the open note in a
-[Toast UI Editor](https://github.com/nhn/tui.editor) in markdown mode (English,
-no WYSIWYG; a Preview tab renders the note). Edits autosave to the note's markdown file; Claude Code picks
+[Vditor](https://github.com/Vanessa219/vditor) editor (English) that shows
+the note formatted; click into a heading, list item or paragraph and its
+markdown markers appear there for editing, then fade when you move on. There
+is no Write/Preview switch. Edits autosave to the note's markdown file; Claude Code picks
 them up within a few seconds. Notes and notebooks made on the web appear in
 the pane too. Each notebook's `⋯` menu on the web renames it, exports it as
 one `.md` file you save locally, or deletes it (the folder moves to
@@ -56,7 +58,7 @@ one `.md` file you save locally, or deletes it (the folder moves to
 
 Notes live as plain markdown files with front matter under
 `~/.claude/live-notebook/notes/<Notebook>/`, so any editor can change them.
-The editor loads from a CDN (`uicdn.toast.com`), so the page needs internet
+The editor loads from a CDN (`unpkg.com`), so the page needs internet
 access the first time. To stop the server by hand: `npm run web:stop`.
 
 ## Pane
