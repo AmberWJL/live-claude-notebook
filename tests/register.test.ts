@@ -370,12 +370,12 @@ describe('live-notebook hooks', () => {
     // Wide: the overview column beside the open note, and beside the editor too.
     expect(await wide.find({ key: 'home-column' })).toBeDefined()
     expect(await wide.find({ type: 'Text', text: /^Ops$/ })).toBeDefined()
+    expect((await wide.find({ key: 'row:e-1' }))?.props.borderColor).toBe('claude')
     await wide.press({ key: 'edit' })
     expect(await wide.find({ key: 'home-column' })).toBeDefined()
     expect(await wide.find({ key: 'fmt-h2' })).toBeDefined()
     await wide.press({ key: 'home-icon' })
     expect(await wide.find({ type: 'Text', text: /^Edit kept$/ })).toBeDefined()
-    expect((await wide.find({ key: 'row:e-1' }))?.props.borderColor).toBe('claude')
     expect(await wide.find({ key: 'entry:e-1' })).toBeDefined()
     await wide.unmount()
   })
