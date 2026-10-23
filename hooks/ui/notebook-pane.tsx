@@ -407,7 +407,7 @@ export function renderNotebookPane(
               <Box gap={1}>
                 <Text dimColor>{options.folder}</Text>
                 <Text dimColor>/</Text>
-                <Text bold>{oneLine(title, Math.max(12, pageMeasure - options.folder.length - 26))}</Text>
+                <Text bold>{oneLine(title, Math.max(12, pageMeasure - options.folder.length - 20))}</Text>
               </Box>
               <Text dimColor>{longDate(options.date).replace(/, \d\d:\d\d$/, '')}</Text>
             </Box>
