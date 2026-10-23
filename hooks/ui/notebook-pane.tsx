@@ -90,7 +90,7 @@ const TYPE_FILTERS: ReadonlyArray<{ value: '' | EntryType; label: string; short:
 ]
 
 /** Below this many columns the pane stacks its controls and shortens labels. */
-const NARROW = 56
+const NARROW = 40
 /** From this many columns the detail view keeps the list beside it. */
 const WIDE = 104
 /** The widest a line of text is laid out, so long panes stay readable. */
@@ -263,9 +263,9 @@ export function renderNotebookPane(
     return (
       <Box flexDirection="column">
         <Button key="web" onPress={() => actions.openWeb()}>
-          {isNarrow ? '⧉ Open in Browser' : '⧉ Open Live Notebook in Browser'}
+          ⧉ Open Live Notebook in Browser
         </Button>
-        <Box gap={1} marginTop={1} flexDirection={isNarrow ? 'column' : 'row'}>
+        <Box gap={1} marginTop={1} flexDirection="row" flexWrap="wrap">
           <Button key="new-note" variant="primary" onPress={() => actions.newNote()}>
             + Add New Note
           </Button>
@@ -542,9 +542,12 @@ export function renderNotebookPane(
           return (
             <Box key={`nb-row:${name}`} flexDirection="column" marginTop={1}>
               <Box justifyContent="space-between" gap={1}>
-                <Button key={`nb:${name}`} plain onPress={() => actions.toggleNotebook(name)}>
-                  {`${closed ? '›' : '⌄'} ${name}`}
-                </Button>
+                <Box gap={1}>
+                  <Button key={`nb:${name}`} plain onPress={() => actions.toggleNotebook(name)}>
+                    {closed ? '›' : '⌄'}
+                  </Button>
+                  <Text bold>{name}</Text>
+                </Box>
                 <Text dimColor>{String(notes.length)}</Text>
               </Box>
               {!closed && tags !== undefined && tags.tags.length > 0 && <Text dimColor>{hashTags(tags.tags)}</Text>}

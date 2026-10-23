@@ -65,7 +65,7 @@ describe('save control under assistant replies', () => {
     expect(await pane.find({ type: 'Text', text: /^Captured from assistant message$/ })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /In reply to: What is the cache rule\?/ })).toBeDefined()
     await pane.press({ key: 'back' })
-    expect((await pane.find({ key: 'nb:General' }))?.text).toBe('⌄ General')
+    expect((await pane.find({ key: 'nb:General' }))?.text).toBe('⌄')
     await pane.unmount()
   })
 
