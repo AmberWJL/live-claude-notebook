@@ -186,6 +186,22 @@ function setPrefix(state: EditorState, prefix: string): EditorState {
   return { ...state, lines, col: Math.max(0, Math.min(next.length, state.col + delta + (delta < 0 ? 0 : 0) - 0)) }
 }
 
+/**
+ * The cursor moved to a click at cell (`x`, `y`) of the region: `y` counts
+ * from the first row shown, and a click past a row's end lands at its end.
+ */
+export function pointAt(state: EditorState, x: number, y: number, width: number, height: number): EditorState {
+  const shown = withTop(state, width, height)
+  const rows = visualRows(shown.lines, width)
+  const target = rows[Math.max(0, Math.min(rows.length - 1, shown.top + Math.max(0, y)))]
+  if (target === undefined) return shown
+  const line = shown.lines[target.row] ?? ''
+  const isLastOfLine = target.start + target.text.length >= line.length
+  const end = isLastOfLine ? line.length : target.start + target.text.length - 1
+  const col = Math.max(target.start, Math.min(end, target.start + Math.max(0, x)))
+  return { ...shown, row: target.row, col }
+}
+
 /** A toolbar command applied at the cursor; `undo` and `redo` walk the history. */
 export function applyCommand(state: EditorState, kind: string): EditorState {
   if (kind === 'undo') {
@@ -370,11 +386,12 @@ export function render(state: EditorState, surface: ClientSurface<EditorState>, 
 
 const Editor: ClientModule<EditorProps, EditorState> = (props, surface) => {
   let state = surface.state
+  const command = props.command ?? null
   if (state === undefined || state.draftId !== props.draftId) {
-    state = stateFrom(props.draftId, props.text)
+    // A fresh text starts past the toolbar's latest command, so it is never replayed.
+    state = { ...stateFrom(props.draftId, props.text), commandId: command?.id ?? 0 }
     surface.setState(state)
   }
-  const command = props.command ?? null
   if (command !== null && command.id !== (state.commandId ?? 0)) {
     const width = Math.max(10, surface.columns || 60)
     const height = Math.max(3, surface.rows || 8)
@@ -387,6 +404,14 @@ const Editor: ClientModule<EditorProps, EditorState> = (props, surface) => {
     surface.setState(state)
   }
   const current = state
+  // A click puts the cursor where it lands, so the toolbar acts on that line.
+  surface.onPointer(event => {
+    if (event.type !== 'down' || (event.button !== undefined && event.button !== 'left')) return
+    const width = Math.max(10, surface.columns || 60)
+    const height = Math.max(3, surface.rows || 8)
+    const next = pointAt(current, event.x, event.y, width, height)
+    if (next.row !== current.row || next.col !== current.col || next.top !== current.top) surface.setState(next)
+  })
   surface.onKey(event => {
     const width = Math.max(10, surface.columns || 60)
     const height = Math.max(3, surface.rows || 8)

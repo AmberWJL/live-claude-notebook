@@ -61,6 +61,8 @@ const TITLE = 'Live Notebook'
 const EDITOR_MIN_ROWS = 12
 /** Rows of the pane the editor page needs besides the editor. */
 const EDITOR_CHROME_ROWS = 11
+/** The fewest rows the editor keeps while the preview shares the pane with it. */
+const EDITOR_PREVIEW_MIN_ROWS = 6
 /** The width asked for while a note is being written or edited. */
 const EDITOR_COLUMNS = 110
 /** How often the notes directory is checked for edits made on the web. */
@@ -96,6 +98,7 @@ const isSavingAtom = atom({ plugin: 'live-notebook', key: 'isSaving' } as const,
 const showSnapshotAtom = atom({ plugin: 'live-notebook', key: 'showSnapshot' } as const, false)
 const collapsedAtom = atom({ plugin: 'live-notebook', key: 'collapsed' } as const, [] as string[])
 const editorCommandAtom = atom({ plugin: 'live-notebook', key: 'editorCommand' } as const, null as { id: number; kind: string } | null)
+const editorPreviewAtom = atom({ plugin: 'live-notebook', key: 'editorPreview' } as const, true)
 
 type Dollar = EngineInterface
 
@@ -222,14 +225,21 @@ async function toggleSnapshot($: Dollar): Promise<void> {
   await update($, showSnapshotAtom, isShown => !(isShown ?? false))
 }
 
-/** A toolbar press: the editor applies the command once, by its id. */
+/**
+ * A toolbar press: the editor applies the command once, by its id. The id
+ * only grows; a newly opened text starts past it, so nothing is replayed.
+ */
 async function formatEditor($: Dollar, kind: string): Promise<void> {
   await update($, editorCommandAtom, current => ({ id: (current?.id ?? 0) + 1, kind }))
 }
 
+/** Shows or hides the rendered note under the editor. */
+async function togglePreview($: Dollar): Promise<void> {
+  await update($, editorPreviewAtom, isShown => !(isShown ?? true))
+}
+
 /** Opens (or widens) the pane for writing. */
 async function openForEditing($: Dollar): Promise<void> {
-  await update($, editorCommandAtom, () => null)
   await update($, namingNotebookAtom, () => false)
   await $.ui.open({ id: PANE, title: TITLE, focus: true, columns: EDITOR_COLUMNS, rows: 30 })
 }
@@ -885,6 +895,7 @@ function actionsOf($: Dollar): PaneActions {
     setDraftFolder: folder => void setDraftFolder($, folder),
     addFolder: name => void addFolder($, name),
     format: kind => void formatEditor($, kind),
+    togglePreview: () => void togglePreview($),
     save: () => void confirmSave($),
     cancel: () => void cancelDraft($),
     resume: () => void resumeEditing($),
@@ -1067,7 +1078,7 @@ export const register: Register = on => {
         read($, noticeAtom),
         $.session.id(),
       ])
-    const [typeFilter, isNamingNotebook, isLoading, isSaving, showSnapshot, notesRoot, collapsed, editorCommand] =
+    const [typeFilter, isNamingNotebook, isLoading, isSaving, showSnapshot, notesRoot, collapsed, editorCommand, isPreview] =
       await Promise.all([
         read($, typeFilterAtom),
         read($, namingNotebookAtom),
@@ -1077,8 +1088,13 @@ export const register: Register = on => {
         read($, notesRootAtom),
         read($, collapsedAtom),
         read($, editorCommandAtom),
+        read($, editorPreviewAtom),
       ])
-    const editorRows = Math.max(EDITOR_MIN_ROWS, (e.props.scroll?.bodyRows ?? 0) - EDITOR_CHROME_ROWS)
+    // With the preview showing, the editor takes half of the room and the preview the rest.
+    const editorRoom = (e.props.scroll?.bodyRows ?? 0) - EDITOR_CHROME_ROWS
+    const editorRows = isPreview
+      ? Math.max(EDITOR_PREVIEW_MIN_ROWS, Math.floor(editorRoom / 2))
+      : Math.max(EDITOR_MIN_ROWS, editorRoom)
     if (e.surface === 'mobile') return renderReadOnlyPane($.ui.resolve(e), entries)
 
     // The editor is a Client; its module path must be a literal in this file.
@@ -1112,6 +1128,7 @@ export const register: Register = on => {
         notesRoot,
         width: e.props.bodyColumns,
         editorRows,
+        isPreview,
         currentSessionId,
         ...(editor === undefined ? {} : { editor }),
       },

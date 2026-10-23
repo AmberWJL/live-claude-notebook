@@ -45,6 +45,8 @@ export type PaneModel = {
   width: number
   /** Rows the editor may take, from the pane's own height. */
   editorRows: number
+  /** The editor page shows the note rendered under the editor. */
+  isPreview: boolean
   currentSessionId: string
   /**
    * The content editor, a `Client` the hooks module builds (its module path
@@ -68,6 +70,8 @@ export type PaneActions = {
   addFolder: (name: string) => void
   /** A formatting command for the editor's cursor line or word. */
   format: (kind: string) => void
+  /** Shows or hides the rendered note under the editor. */
+  togglePreview: () => void
   save: () => void
   cancel: () => void
   /** Back to the draft or edit the person left with the home icon. */
@@ -421,7 +425,8 @@ export function renderNotebookPane(
   /**
    * The editor page, for a new capture and for an existing note alike: the
    * breadcrumb and date, `⋯` (notebook, discard) and Save, a formatting
-   * toolbar, then the editor filling the pane.
+   * toolbar, then the editor filling the pane, or sharing it with the note
+   * rendered as markdown (headings sized, code set apart) when the preview shows.
    */
   function editorPage(options: {
     folder: string
@@ -499,6 +504,11 @@ export function renderNotebookPane(
           {tool('fmt-quote', 'Quote', 'quote')}
           {tool('fmt-undo', 'Undo', 'undo')}
           {tool('fmt-redo', 'Redo', 'redo')}
+          {model.editor !== undefined && (
+            <Button key="toggle-preview" plain dimColor onPress={() => actions.togglePreview()}>
+              {model.isPreview ? 'Hide preview' : 'Preview'}
+            </Button>
+          )}
         </Box>
         <Box flexDirection="column" borderStyle="round" borderDimColor paddingX={1} marginTop={1}>
           {model.editor ?? (
@@ -508,6 +518,12 @@ export function renderNotebookPane(
             </Box>
           )}
         </Box>
+        {model.editor !== undefined && model.isPreview && (
+          <Box flexDirection="column" borderStyle="round" borderDimColor paddingX={1} marginTop={1}>
+            <Text dimColor>Preview</Text>
+            {options.content.trim() === '' ? <Text dimColor>Nothing to preview yet.</Text> : <Markdown text={options.content} />}
+          </Box>
+        )}
         <Text dimColor>{options.meta}</Text>
         {noticeRow}
       </Box>

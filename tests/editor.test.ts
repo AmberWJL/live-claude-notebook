@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { applyKey, stateFrom, textOf, visualRows } from '../hooks/ui/editor'
+import { applyCommand, applyKey, pointAt, stateFrom, textOf, visualRows } from '../hooks/ui/editor'
 
 const W = 20
 const H = 5
@@ -65,5 +65,26 @@ describe('editor state', () => {
     for (let i = 0; i < 11; i += 1) state = applyKey(state, { key: 'up' }, W, H)
     expect(state.row).toBe(0)
     expect(state.top).toBe(0)
+  })
+
+  test('a click puts the cursor on the clicked line, so H1 heads that line', async () => {
+    let state = stateFrom('d1', 'Title\nbody text\n')
+    state = pointAt(state, 2, 0, W, H)
+    expect([state.row, state.col]).toEqual([0, 2])
+    state = applyCommand(state, 'h1')
+    expect(textOf(state)).toBe('# Title\nbody text\n')
+    state = pointAt(state, 50, 1, W, H)
+    expect([state.row, state.col]).toEqual([1, 9])
+    state = applyCommand(state, 'code')
+    expect(textOf(state)).toBe('# Title\nbody `text`\n')
+  })
+
+  test('a click counts rows from the first one shown and stays inside a wrapped row', async () => {
+    const long = 'x'.repeat(45)
+    let state = stateFrom('d1', Array.from({ length: 12 }, (_, i) => `line ${i}`).join('\n'))
+    state = pointAt(state, 0, 0, W, H)
+    expect(state.row).toBe(12 - H)
+    state = pointAt(stateFrom('d2', long), 30, 0, W, H)
+    expect([state.row, state.col]).toEqual([0, 19])
   })
 })
