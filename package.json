@@ -1,6 +1,6 @@
 {
   "name": "live-notebook",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "Live Notebook: a Claude Code Mod for capturing and searching useful conversation content.",
   "type": "module",

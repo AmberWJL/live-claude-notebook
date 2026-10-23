@@ -169,9 +169,9 @@ export function renderNotebookPane(
   /** One bordered card per note: the type mark, the title, the date. */
   function entryRow(
     entry: NotebookEntry,
-    options: { withFolder: boolean; isSelected?: boolean; compact?: boolean; isFirst: boolean },
+    options: { withFolder: boolean; isSelected?: boolean; compact?: boolean; isFirst: boolean; columnWidth?: number },
   ): RenderElement {
-    const textWidth = Math.max(12, measure - 16)
+    const textWidth = Math.max(12, (options.columnWidth ?? measure) - 16)
     const folder = options.withFolder ? ` · ${entry.folder}` : ''
     const isSelected = options.isSelected === true
     return (
@@ -195,8 +195,15 @@ export function renderNotebookPane(
     )
   }
 
-  function rows(list: readonly NotebookEntry[], withFolder: boolean): RenderElement[] {
-    return list.map((entry, index) => entryRow(entry, { withFolder, isFirst: index === 0 }))
+  function rows(list: readonly NotebookEntry[], withFolder: boolean, columnWidth?: number, selectedId?: string): RenderElement[] {
+    return list.map((entry, index) =>
+      entryRow(entry, {
+        withFolder,
+        isFirst: index === 0,
+        isSelected: entry.id === selectedId,
+        ...(columnWidth === undefined ? {} : { columnWidth }),
+      }),
+    )
   }
 
   function searchField(): RenderElement {
@@ -507,44 +514,15 @@ export function renderNotebookPane(
     )
   }
 
-  /** The notebooks and their notes as a compact column, drawn beside a page on a wide pane. */
-  function overviewColumn(selectedId?: string): RenderElement {
-    return (
-      <Box flexDirection="column" width={34}>
-        <Button key="home-column" plain dimColor onPress={() => actions.home()}>
-          ⌂ Notebooks
-        </Button>
-        {folders.names.map(name => {
-          const notes = activeIn(model.entries, name)
-          const closed = isCollapsed(name, notes.length, model.collapsed)
-          return (
-            <Box key={`nb-col:${name}`} flexDirection="column" marginTop={1}>
-              <Box justifyContent="space-between" gap={1}>
-                <Box gap={1}>
-                  <Button key={`nb:${name}`} plain onPress={() => actions.toggleNotebook(name)}>
-                    {closed ? '›' : '⌄'}
-                  </Button>
-                  <Text bold>{name}</Text>
-                </Box>
-                <Text dimColor>{String(notes.length)}</Text>
-              </Box>
-              {!closed &&
-                notes.map((one, index) =>
-                  entryRow(one, { withFolder: false, isSelected: one.id === selectedId, compact: true, isFirst: index === 0 }),
-                )}
-            </Box>
-          )
-        })}
-      </Box>
-    )
-  }
-
-  /** A page beside the overview when the pane is wide enough for both. */
+  /** A page beside the home page when the pane is wide enough for both. */
   function withOverview(page: RenderElement, selectedId?: string): RenderElement {
     if (width < WIDE) return page
+    const left = Math.min(56, Math.max(40, Math.floor(width * 0.42)))
     return (
       <Box flexDirection="row" gap={2}>
-        {overviewColumn(selectedId)}
+        <Box flexDirection="column" width={left} flexShrink={0}>
+          {homeView(left, selectedId, false)}
+        </Box>
         <Box flexDirection="column" flexGrow={1}>
           {page}
         </Box>
@@ -601,7 +579,10 @@ export function renderNotebookPane(
     }
   }
 
-  // Home: search, filters, then the notebooks as collapsible groups.
+  return homeView(measure, undefined, true)
+
+  /** The home page: toolbar, filters, then the notebooks as collapsible groups, laid out to `columnWidth`. */
+  function homeView(columnWidth: number, selectedId: string | undefined, withNotice: boolean): RenderElement {
   const typeFilter = isEntryType(model.typeFilter) ? model.typeFilter : ''
   const filter = TYPE_FILTERS.find(one => one.value === typeFilter) ?? TYPE_FILTERS[0]
   const isFiltering = query.trim() !== '' || typeFilter !== ''
@@ -627,7 +608,7 @@ export function renderNotebookPane(
               : filter?.empty ?? 'No notes match.'
             : `${results.length} ${results.length === 1 ? 'note' : 'notes'}`}
         </Text>
-        {rows(results, true)}
+        {rows(results, true, columnWidth, selectedId)}
       </Box>
     )
   } else {
@@ -650,7 +631,7 @@ export function renderNotebookPane(
               </Box>
               {!closed && tags !== undefined && tags.tags.length > 0 && <Text dimColor>{hashTags(tags.tags)}</Text>}
               {!closed && notes.length === 0 && <Text dimColor>No notes yet.</Text>}
-              {!closed && <Box flexDirection="column">{rows(notes, false)}</Box>}
+              {!closed && <Box flexDirection="column">{rows(notes, false, columnWidth, selectedId)}</Box>}
             </Box>
           )
         })}
@@ -662,10 +643,11 @@ export function renderNotebookPane(
     <Box flexDirection="column">
       {toolbar()}
       {filterRow(typeFilter)}
-      {noticeRow}
+      {withNotice && noticeRow}
       {body}
     </Box>
   )
+  }
 }
 
 /** A read-only list for a surface without Input or Select. */
