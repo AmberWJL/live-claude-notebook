@@ -1,5 +1,5 @@
 /* Live Notebook web app: notebooks and notes in the sidebar, one note open
- * in a Toast UI WYSIWYG markdown editor, autosaved to its markdown file
+ * in a Toast UI markdown editor (markdown mode only, with a preview tab), autosaved to its markdown file
  * through the local server. Plain script, no build step. */
 ;(() => {
   const $ = id => document.getElementById(id)
@@ -209,9 +209,9 @@
         el: $('editor'),
         height: 'auto',
         minHeight: '420px',
-        initialEditType: 'wysiwyg',
+        initialEditType: 'markdown',
         previewStyle: 'tab',
-        hideModeSwitch: false,
+        hideModeSwitch: true,
         usageStatistics: false,
         autofocus: false,
         initialValue: initial,

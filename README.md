@@ -47,8 +47,8 @@ A small local server (Node, no dependencies, bound to 127.0.0.1) starts
 with every session. **Open Live Notebook** at the top of the pane, or
 `/notebook web`, opens it in your browser: notebooks and notes in a sidebar,
 each notebook with its tags, and the open note in a
-[Toast UI Editor](https://github.com/nhn/tui.editor) (English, WYSIWYG with a
-markdown mode). Edits autosave to the note's markdown file; Claude Code picks
+[Toast UI Editor](https://github.com/nhn/tui.editor) in markdown mode (English,
+no WYSIWYG; a Preview tab renders the note). Edits autosave to the note's markdown file; Claude Code picks
 them up within a few seconds. Notes and notebooks made on the web appear in
 the pane too. Each notebook's `⋯` menu on the web renames it, exports it as
 one `.md` file you save locally, or deletes it (the folder moves to
