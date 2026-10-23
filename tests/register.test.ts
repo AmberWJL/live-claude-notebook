@@ -50,6 +50,8 @@ describe('live-notebook hooks', () => {
     }
 
     const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: PANE_PROPS })
+    // The editor opens with the cursor at the top; End, then a new line under the excerpt.
+    await ui.key({ key: 'end', in: 'editor' })
     await ui.key({ key: 'return', in: 'editor' })
     for (const ch of 'Why: cold caches.') await ui.key({ key: ch, in: 'editor' })
     expect(await ui.find({ type: 'Text', text: /48 characters/ })).toBeDefined()
@@ -243,6 +245,7 @@ describe('live-notebook hooks', () => {
     await ui.press({ key: 'snapshot' })
     expect(await ui.find({ type: 'Markdown', text: /only after health checks pass/ })).toBeDefined()
     await ui.select({ key: 'edit-folder', value: 'General' })
+    await ui.key({ key: 'end', in: 'editor' })
     for (const ch of ' Always.') await ui.key({ key: ch, in: 'editor' })
     await ui.press({ key: 'save-edit' })
     expect(data.get('entry:e-1')).toMatchObject({
@@ -353,10 +356,13 @@ describe('live-notebook hooks', () => {
     })
     await ui.press({ key: 'open-saved' })
     await ui.press({ key: 'editor-more' })
-    expect(await ui.find({ type: 'Text', text: /In reply to: How do I invalidate the cache\?/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^notes\/General\// })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Source$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Claude · whole message · Jan 1, 1970, 00:00$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^In reply to "How do I invalidate the cache\?"$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /notes\/General\// })).toBeUndefined()
     expect(await ui.find({ key: 'view-source' })).toBeUndefined()
-    expect(await ui.find({ key: 'snapshot' })).toBeDefined()
+    expect((await ui.find({ key: 'snapshot' }))?.text).toBe('▸ Show original')
+    expect(await ui.find({ key: 'copy-snapshot' })).toBeDefined()
     await ui.unmount()
   })
 
@@ -380,7 +386,7 @@ describe('live-notebook hooks', () => {
   test('a narrow pane stacks its controls and a wide one keeps the list beside an open note', async ($, on) => {
     const data = fakeStore(on, { meta: { schemaVersion: 1 }, folders: { names: ['General', 'Ops'], last: 'Ops' }, 'entry:e-1': seeded })
     fakeFs(on)
-    fakeEngine(on)
+    const engine = fakeEngine(on)
     mock.clock(on)
     await $.session.start(START)
     expect(data.get('entry:e-1')).toBeDefined()
@@ -402,8 +408,14 @@ describe('live-notebook hooks', () => {
     expect(await wide.find({ key: 'entry:e-1' })).toBeUndefined()
     expect(await wide.find({ key: 'fmt-heading' })).toBeDefined()
     expect(await wide.find({ key: 'save-edit' })).toBeDefined()
-    // Something typed, then the home icon: the edit is kept and Resume returns to it.
+    // Shift+End selects the first line; ⌘C copies it through the hooks module.
+    await wide.key({ key: 'end', shift: true, in: 'editor' })
+    await wide.key({ key: 'c', meta: true, in: 'editor' })
+    expect(engine.copied).toEqual(['Switch traffic only after health checks pass.'])
+    expect(await wide.find({ type: 'Text', text: /^Copied$/ })).toBeDefined()
+    // Something typed (over the selection), then the home icon: the edit is kept and Resume returns to it.
     await wide.key({ key: '!', in: 'editor' })
+    expect(await wide.find({ type: 'Text', text: /^1 characters/ })).toBeDefined()
     await wide.press({ key: 'home-icon' })
     expect(await wide.find({ type: 'Text', text: /^Edit kept$/ })).toBeDefined()
     expect(await wide.find({ key: 'entry:e-1' })).toBeDefined()

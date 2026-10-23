@@ -130,17 +130,33 @@ function hashTags(tags: readonly string[]): string {
   return tags.map(tag => `#${tag}`).join('  ')
 }
 
+/** The left column's width on a wide pane, and the editor page's width beside it (or the whole pane). */
+function leftWidthOf(width: number): number {
+  return Math.min(56, Math.max(40, Math.floor(width * 0.42)))
+}
+function pageWidthOf(width: number): number {
+  return width >= WIDE ? width - leftWidthOf(width) - 3 : width
+}
+
+/** The cells the editor's text has across: the page less the editor box's border and padding. */
+export function editorColumns(width: number): number {
+  return Math.max(10, pageWidthOf(Math.max(24, width)) - 4)
+}
+
 /** Whether a notebook is drawn closed: empty ones are, unless toggled; others are open unless toggled. */
 export function isCollapsed(folder: string, count: number, collapsed: readonly string[]): boolean {
   return (count === 0) !== collapsed.includes(folder)
 }
 
-function capturedFrom(entry: NotebookEntry): string {
+/** One line on where a note came from: who wrote it, how much was taken, when, and whether it has changed since. */
+function sourceLine(entry: NotebookEntry): string {
   const source = entry.sources[0]
   if (source === undefined) return 'No source recorded'
-  if (source.snapshot === '') return 'Written in the notebook'
-  const who = source.role === 'assistant' ? 'assistant' : source.role === 'user' ? 'your' : 'a'
-  return `Captured from ${who} message${source.captureMode === 'excerpt' ? ' (excerpt)' : ''}`
+  if (source.snapshot === '') return `Written in the notebook · ${longDate(source.capturedAt)}`
+  const who = source.role === 'assistant' ? 'Claude' : source.role === 'user' ? 'You' : 'Unknown'
+  const mode = source.captureMode === 'whole_message' ? 'whole message' : 'excerpt'
+  const edited = source.snapshot !== entry.content ? ' · edited since' : ''
+  return `${who} · ${mode} · ${longDate(source.capturedAt)}${edited}`
 }
 
 export function renderNotebookPane(
@@ -153,9 +169,8 @@ export function renderNotebookPane(
   const measure = Math.min(width, MEASURE)
   const isNarrow = width < NARROW
   // On a wide pane an open note shares the width with the home page: the left column, a gap, a rule, a gap, the page.
-  const leftWidth = Math.min(56, Math.max(40, Math.floor(width * 0.42)))
-  const pageWidth = width >= WIDE ? width - leftWidth - 3 : width
-  const pageMeasure = Math.min(pageWidth, MEASURE)
+  const leftWidth = leftWidthOf(width)
+  const pageMeasure = Math.min(pageWidthOf(width), MEASURE)
   const { notice, folders, query } = model
   const folderOptions = folders.names.map(name => ({ value: name, label: name }))
   const typeOptions = ENTRY_TYPES.map(type => ({ value: type, label: TYPE_LABELS[type] }))
@@ -364,8 +379,9 @@ export function renderNotebookPane(
    * The editor page, for a new capture and for an existing note alike: the
    * breadcrumb and date, `⋯` and Save, a formatting toolbar (heading picker,
    * then glyph buttons), then the editor filling the pane. Behind `⋯`: the
-   * notebook picker and a new-notebook field; for a saved note also its type,
-   * Archive and Delete, its source and the original snapshot; and Discard.
+   * notebook picker and a new-notebook field; for a saved note also its type
+   * and tags, Archive and Delete, then its source (one line on who, how much
+   * and when, what it answered, the original behind a toggle); and Discard.
    */
   function editorPage(options: {
     folder: string
@@ -463,38 +479,35 @@ export function renderNotebookPane(
                     Keep
                   </Button>
                 )}
-                {canView && (
-                  <Button key="view-source" plain onPress={() => actions.viewSource(entry.id)}>
-                    View in conversation ↗
-                  </Button>
-                )}
               </Box>
             )}
             {entry !== undefined && (
               <Box flexDirection="column" marginTop={1}>
-                <Text dimColor>{capturedFrom(entry)}</Text>
-                {source !== undefined && <Text dimColor>{longDate(source.capturedAt)}</Text>}
+                <Text bold>Source</Text>
+                <Text dimColor>{sourceLine(entry)}</Text>
                 {asked !== undefined && (
-                  <Text dimColor>{`In reply to: ${oneLine(asked.text, Math.max(20, pageMeasure - 16))}`}</Text>
+                  <Text dimColor>{`In reply to "${oneLine(asked.text, Math.max(20, pageMeasure - 18))}"`}</Text>
                 )}
                 {hasSnapshot && source !== undefined && (
-                  <Box flexDirection="column">
-                    <Box gap={1}>
-                      <Button key="snapshot" plain dimColor onPress={() => actions.toggleSnapshot()}>
-                        {`${model.showSnapshot ? '▾' : '▸'} Original message snapshot${source.snapshot !== entry.content ? ' (edited since)' : ''}`}
+                  <Box gap={2} flexWrap="wrap">
+                    <Button key="snapshot" plain dimColor onPress={() => actions.toggleSnapshot()}>
+                      {model.showSnapshot ? '▾ Hide original' : '▸ Show original'}
+                    </Button>
+                    <Button key="copy-snapshot" plain dimColor onPress={press => actions.copy(source.snapshot, press.surface)}>
+                      Copy
+                    </Button>
+                    {canView && (
+                      <Button key="view-source" plain onPress={() => actions.viewSource(entry.id)}>
+                        View in conversation ↗
                       </Button>
-                      <Button key="copy-snapshot" plain dimColor onPress={press => actions.copy(source.snapshot, press.surface)}>
-                        copy
-                      </Button>
-                    </Box>
-                    {model.showSnapshot && (
-                      <Box paddingLeft={2}>
-                        <Markdown text={source.snapshot} dimColor />
-                      </Box>
                     )}
                   </Box>
                 )}
-                {entry.file !== undefined && <Text dimColor>{`notes/${entry.file}`}</Text>}
+                {hasSnapshot && source !== undefined && model.showSnapshot && (
+                  <Box flexDirection="column" borderStyle="round" borderDimColor paddingX={1}>
+                    <Markdown text={source.snapshot} dimColor />
+                  </Box>
+                )}
               </Box>
             )}
             <Box marginTop={1}>

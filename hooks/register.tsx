@@ -52,7 +52,7 @@ import {
 } from './capture'
 import { EDITOR_KEY, type EditorPost, type EditorProps } from './ui/editor'
 import { renderAssistantBlock } from './ui/message-row'
-import { renderNotebookPane, renderReadOnlyPane, type PaneActions } from './ui/notebook-pane'
+import { editorColumns, renderNotebookPane, renderReadOnlyPane, type PaneActions } from './ui/notebook-pane'
 
 /** The pane's id and the plugin's name, as `plugin.json` spells it. */
 const PANE = 'live-notebook'
@@ -728,11 +728,14 @@ async function startBlankDraft($: Dollar): Promise<void> {
 }
 
 /** The editor posted new text: it belongs to the draft or the edit whose id it names. */
-async function acceptEditorText($: Dollar, post: EditorPost): Promise<void> {
+/** What the editor posted: new text, a cursor on another heading level, or text for the clipboard. */
+async function acceptEditorPost($: Dollar, post: EditorPost, surface: RenderSurface): Promise<void> {
   const [draft, edit] = await Promise.all([read($, draftAtom), read($, editAtom)])
   if (draft?.id !== post.draftId && edit?.id !== post.draftId) return
-  if (post.type === 'content') {
-    const { text } = post
+  if (post.type === 'copy' || post.type === 'cut') await copyText($, post.text, surface)
+  if (post.type === 'copy') return
+  if (post.type === 'content' || post.type === 'cut') {
+    const text = post.type === 'content' ? post.text : post.content
     await update($, draftAtom, current => (current && current.id === post.draftId ? { ...current, content: text } : current ?? null))
     await update($, editAtom, current => (current && current.id === post.draftId ? { ...current, content: text } : current ?? null))
   }
@@ -919,8 +922,12 @@ function actionsOf($: Dollar): PaneActions {
 function isEditorPost(data: unknown): data is EditorPost {
   if (typeof data !== 'object' || data === null) return false
   const record = data as Record<string, unknown>
-  if (typeof record.draftId !== 'string' || typeof record.heading !== 'string') return false
-  return record.type === 'cursor' || (record.type === 'content' && typeof record.text === 'string')
+  if (typeof record.draftId !== 'string') return false
+  if (record.type === 'copy') return typeof record.text === 'string'
+  if (typeof record.heading !== 'string') return false
+  if (record.type === 'cursor') return true
+  if (record.type === 'content') return typeof record.text === 'string'
+  return record.type === 'cut' && typeof record.text === 'string' && typeof record.content === 'string'
 }
 
 // ---------------------------------------------------------------------------
@@ -1036,9 +1043,10 @@ export const register: Register = on => {
     return { text: args === '' ? 'Live Notebook opened.' : `Live Notebook opened, searching for "${args}".` }
   })
 
-  // The content editor posts its text after every change, and the heading under its cursor.
+  // The content editor posts its text after every change, the heading under
+  // its cursor, and what a copy or cut puts on the clipboard.
   on('ui.message', { element: EDITOR_KEY }, async ($, e, next) => {
-    if (isEditorPost(e.data)) await acceptEditorText($, e.data)
+    if (isEditorPost(e.data)) await acceptEditorPost($, e.data, e.surface)
     return next(e)
   })
 
@@ -1097,7 +1105,13 @@ export const register: Register = on => {
     const editing = view.kind === 'confirm' ? draft : view.kind === 'edit' ? edit : null
     if (editing && e.surface !== 'vscode') {
       const { Client } = $.ui.resolve(e)
-      const props: EditorProps = { draftId: editing.id, text: editing.content, command: editorCommand }
+      const props: EditorProps = {
+        draftId: editing.id,
+        text: editing.content,
+        command: editorCommand,
+        columns: editorColumns(e.props.bodyColumns),
+        rows: editorRows,
+      }
       editor = <Client key={EDITOR_KEY} module="./ui/editor.ts" props={props} width="100%" height={editorRows} />
     }
 

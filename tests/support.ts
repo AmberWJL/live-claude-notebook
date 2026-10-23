@@ -102,6 +102,7 @@ export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { t
   const toasts: string[] = []
   const prompts: string[] = []
   const commands: string[][] = []
+  const copied: string[] = []
   mock.env(on, { HOME })
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
   on('turn.complete', async (_$, e) => ({ text: e.answer }))
@@ -117,6 +118,10 @@ export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { t
     return { value: { isPlaced: true as const } }
   })
   on('ui.selection', async () => ({ value: undefined }))
+  on('ui.copy', async (_$, e) => {
+    copied.push(e.text)
+    return { value: { isCopied: true as const } }
+  })
   on('ui.toast', async (_$, e) => {
     toasts.push(e.text)
     return { value: undefined }
@@ -143,7 +148,7 @@ export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { t
     }
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  return { registered, opened, toasts, prompts, commands }
+  return { registered, opened, toasts, prompts, commands, copied }
 }
 
 export function entryKeys(data: Map<string, unknown>): string[] {
