@@ -39,6 +39,8 @@ export type PaneModel = {
   isSaving: boolean
   showSnapshot: boolean
   collapsed: readonly string[]
+  /** Which surface draws the pane: the terminal draws rules as characters, a desktop as a markdown rule. */
+  surface: FormSurface
   /** `e.props.bodyColumns`: the cells across the pane body. */
   width: number
   /** `e.props.scroll.bodyRows`: the rows of the pane body; 0 when unknown. */
@@ -195,8 +197,14 @@ export function renderNotebookPane(
     </Box>
   ) : null
 
-  /** A dim rule across a column: under the filters and between notebooks. */
+  /**
+   * A dim rule across a column: under the filters and between notebooks. The
+   * terminal gets one character per cell; a desktop lays text out in its own
+   * font, where a row of characters is the wrong length, so it gets a markdown
+   * rule that spans the column.
+   */
   function rule(columnWidth: number): RenderElement {
+    if (model.surface !== 'terminal') return <Markdown text="---" dimColor />
     return <Text dimColor>{'─'.repeat(Math.max(8, Math.min(columnWidth, width)))}</Text>
   }
   /** Rows of `│`, the rule between the home column and an open note. */

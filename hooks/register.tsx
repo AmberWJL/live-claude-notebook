@@ -412,6 +412,8 @@ async function importChanges($: Dollar, options: { force?: boolean } = {}): Prom
   const service = serviceOf($)
   const now = await $.clock.now()
   let applied = 0
+  // Notes written on the web have no type until a model gives them one, as a save in the pane does.
+  const toClassify: string[] = []
   for (const action of actions) {
     try {
       if (action.kind === 'folder') await service.ensureFolder(action.name)
@@ -424,7 +426,8 @@ async function importChanges($: Dollar, options: { force?: boolean } = {}): Prom
         if (action.file !== undefined) patch.file = action.file
         if (action.folder !== undefined) patch.folder = action.folder
         if (action.type !== undefined) patch.type = action.type
-        await service.update(action.entryId, patch)
+        const updated = await service.update(action.entryId, patch)
+        if (updated.type === 'other' && action.content !== undefined) toClassify.push(updated.id)
       } else {
         const input: Parameters<NotebookService['create']>[0] = {
           content: action.content,
@@ -443,7 +446,8 @@ async function importChanges($: Dollar, options: { force?: boolean } = {}): Prom
         if (action.id !== undefined) input.id = action.id
         if (action.createdAt !== undefined) input.createdAt = action.createdAt
         if (action.type !== undefined) input.type = action.type
-        await service.create(input)
+        const created = await service.create(input)
+        toClassify.push(created.id)
       }
       applied += 1
     } catch (error) {
@@ -454,6 +458,7 @@ async function importChanges($: Dollar, options: { force?: boolean } = {}): Prom
   for (const file of files) next[file.path] = file.mtimeMs
   await update($, knownAtom, () => next)
   if (applied > 0) await afterChange($)
+  for (const id of toClassify) $.clock.after(1, () => void classifyEntry($, id))
   return applied
 }
 
@@ -822,6 +827,7 @@ async function saveEdit($: Dollar): Promise<void> {
     }
     await afterChange($)
     await flashNotice($, { tone: 'ok', text: `Saved changes${fileNote}` })
+    if (entry.type === 'other') $.clock.after(1, () => void classifyEntry($, entry.id))
   } catch (error) {
     await setNotice($, { tone: 'error', text: `${messageOf(error)} Your changes are still here.` })
   } finally {
@@ -1115,33 +1121,50 @@ export const register: Register = on => {
       editor = <Client key={EDITOR_KEY} module="./ui/editor.ts" props={props} width="100%" height={editorRows} />
     }
 
-    return renderNotebookPane(
-      $.ui.resolve(e),
-      {
-        view,
-        entries,
-        draft,
-        edit,
-        folders,
-        server,
-        candidates,
-        query,
-        typeFilter,
-        notice,
-        isNamingNotebook,
-        isLoading,
-        isSaving,
-        showSnapshot,
-        collapsed,
-        notesRoot,
-        width: e.props.bodyColumns,
-        rows: bodyRows,
-        editorRows,
-        editorHeading,
-        currentSessionId,
-        ...(editor === undefined ? {} : { editor }),
-      },
-      actionsOf($),
-    )
+    try {
+      return renderNotebookPane(
+        $.ui.resolve(e),
+        {
+          surface: e.surface,
+            view,
+          entries,
+          draft,
+          edit,
+          folders,
+          server,
+          candidates,
+          query,
+          typeFilter,
+          notice,
+          isNamingNotebook,
+          isLoading,
+          isSaving,
+          showSnapshot,
+          collapsed,
+          notesRoot,
+          width: e.props.bodyColumns,
+          rows: bodyRows,
+          editorRows,
+          editorHeading,
+          currentSessionId,
+          ...(editor === undefined ? {} : { editor }),
+        },
+        actionsOf($),
+      )
+    } catch (error) {
+      // A drawing that throws would leave the pane blank; say what went wrong instead.
+      const { Box, Text, Button } = $.ui.resolve(e)
+      $.ui.log(`Live Notebook could not draw its pane: ${messageOf(error)}`, { to: 'debug' })
+      return (
+        <Box flexDirection="column">
+          <Text color="error">{`Live Notebook could not draw this view: ${messageOf(error)}`}</Text>
+          <Box marginTop={1}>
+            <Button key="render-error-home" onPress={() => void showHome($)}>
+              Back to notes
+            </Button>
+          </Box>
+        </Box>
+      )
+    }
   })
 }

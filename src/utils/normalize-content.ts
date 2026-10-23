@@ -37,6 +37,7 @@ export function deriveTitle(content: string, max = 80): string {
     .find(l => l !== '' && !/^```/.test(l))
   if (line === undefined) return 'Untitled'
   const cleaned = line
+    .replace(/\\([\\`*_{}[\]()#+\-.!>|~])/g, '$1')
     .replace(/^#{1,6}\s+/, '')
     .replace(/^[-*>]\s+/, '')
     .replace(/^\d+\.\s+/, '')

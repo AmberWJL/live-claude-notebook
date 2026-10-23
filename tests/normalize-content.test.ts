@@ -31,6 +31,11 @@ describe('normalizeContent', () => {
 })
 
 describe('deriveTitle', () => {
+  test('drops markdown backslash escapes, as a WYSIWYG editor writes them', async () => {
+    expect(deriveTitle('\\#\\#\\# hiionn')).toBe('hiionn')
+    expect(deriveTitle('Keep the \\*TTL\\* under 60s')).toBe('Keep the TTL under 60s')
+  })
+
   test('uses the first meaningful line without markdown markers', async () => {
     expect(deriveTitle('\n\n## The **real** fix\n\nmore')).toBe('The real fix')
     expect(deriveTitle('- a bullet')).toBe('a bullet')

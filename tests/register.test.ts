@@ -189,7 +189,7 @@ describe('live-notebook hooks', () => {
   test('edits made on the web come back: a changed file, a new note, a new notebook, a deleted note', async ($, on) => {
     const data = fakeStore(on, { meta: { schemaVersion: 1 }, folders: { names: ['General', 'Ops'], last: 'Ops' }, 'entry:e-1': seeded })
     const fs = fakeFs(on)
-    fakeEngine(on)
+    const engine = fakeEngine(on)
     const clock = mock.clock(on, { now: 100 })
     await $.session.start(START)
     const path = `${NOTES}/Ops/blue-green-deploy--e-1.md`
@@ -224,6 +224,12 @@ describe('live-notebook hooks', () => {
       createdAt: Date.parse('2026-01-01T00:00:00.000Z'),
     })
     expect(data.get('folders')).toEqual({ names: ['General', 'Ops', 'Ideas'], last: 'Ops' })
+    // A note made on the web has no type until the model gives it one, as a save in the pane would.
+    await clock.advance(5)
+    expect(engine.prompts.filter(prompt => prompt.startsWith('Classify'))).toHaveLength(1)
+    expect(data.get('entry:abcd1234-0000-0000-0000-000000000000')).toMatchObject({ type: 'insight', tags: ['caching', 'ttl'] })
+    expect(fs.read(`${NOTES}/Ideas/try-canaries--abcd1234.md`)).toContain('type: insight')
+    expect(data.get('entry:e-1')).toMatchObject({ type: 'decision' })
 
     const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: PANE_PROPS })
     expect(await ui.find({ key: 'nb:Ideas' })).toBeDefined()

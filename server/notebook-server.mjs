@@ -217,6 +217,7 @@ function titleOf(content) {
     .find(l => l !== '' && !l.startsWith('```'))
   if (line === undefined) return undefined
   const cleaned = line
+    .replace(/\\([\\`*_{}[\]()#+\-.!>|~])/g, '$1')
     .replace(/^#{1,6}\s+/, '')
     .replace(/^[-*>]\s+/, '')
     .replace(/[`*_]/g, '')
