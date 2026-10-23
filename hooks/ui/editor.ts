@@ -13,6 +13,8 @@ export type EditorProps = {
   draftId: string
   text: string
   placeholder?: string
+  /** The toolbar's latest command; a new `id` is applied once. */
+  command?: { id: number; kind: string } | null
 }
 
 export type EditorState = {
@@ -22,7 +24,30 @@ export type EditorState = {
   col: number
   /** The first visual row shown. */
   top: number
+  /** Earlier texts, newest last, for undo; and the ones undone, for redo. */
+  history?: string[]
+  future?: string[]
+  /** The last toolbar command applied, by id. */
+  commandId?: number
 }
+
+/** What the toolbar can ask of the editor. */
+export type EditorCommand =
+  | 'bold'
+  | 'italic'
+  | 'code'
+  | 'link'
+  | 'bullet'
+  | 'number'
+  | 'quote'
+  | 'normal'
+  | 'h1'
+  | 'h2'
+  | 'h3'
+  | 'undo'
+  | 'redo'
+
+const HISTORY_MAX = 60
 
 /** What the module posts to the hooks module after a change. */
 export type EditorPost = { type: 'content'; draftId: string; text: string }
@@ -111,6 +136,120 @@ function insert(state: EditorState, text: string): EditorState {
   return { ...state, lines, row: state.row + parts.length - 1, col: last.length }
 }
 
+/** The state with the text's previous version remembered, so undo can return to it. */
+function remember(before: EditorState, after: EditorState): EditorState {
+  if (textOf(before) === textOf(after)) return after
+  const history = [...(before.history ?? []), textOf(before)].slice(-HISTORY_MAX)
+  return { ...after, history, future: [] }
+}
+
+/** The word around the cursor (letters, digits, the usual joiners), as a span. */
+function wordAt(line: string, col: number): { start: number; end: number } {
+  const isWord = (ch: string) => /[\p{Letter}\p{Number}_'-]/u.test(ch)
+  let start = col
+  let end = col
+  while (start > 0 && isWord(line[start - 1] ?? '')) start -= 1
+  while (end < line.length && isWord(line[end] ?? '')) end += 1
+  return { start, end }
+}
+
+/** Wraps the word at the cursor (or inserts an empty pair) with `mark`. */
+function wrap(state: EditorState, mark: string): EditorState {
+  const lines = [...state.lines]
+  const line = lines[state.row] ?? ''
+  const { start, end } = wordAt(line, state.col)
+  if (start === end) {
+    lines[state.row] = `${line.slice(0, state.col)}${mark}${mark}${line.slice(state.col)}`
+    return { ...state, lines, col: state.col + mark.length }
+  }
+  const word = line.slice(start, end)
+  const before = line.slice(start - mark.length, start)
+  const after = line.slice(end, end + mark.length)
+  if (before === mark && after === mark) {
+    lines[state.row] = `${line.slice(0, start - mark.length)}${word}${line.slice(end + mark.length)}`
+    return { ...state, lines, col: Math.max(start - mark.length, Math.min(state.col - mark.length, end - mark.length)) }
+  }
+  lines[state.row] = `${line.slice(0, start)}${mark}${word}${mark}${line.slice(end)}`
+  return { ...state, lines, col: state.col + mark.length }
+}
+
+/** Sets or clears the prefix of the cursor's line (`# `, `- `, `> `, `1. `). */
+function setPrefix(state: EditorState, prefix: string): EditorState {
+  const lines = [...state.lines]
+  const line = lines[state.row] ?? ''
+  const stripped = line.replace(/^(#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s?)/, '')
+  const removed = line.length - stripped.length
+  const isSame = prefix !== '' && line.startsWith(prefix)
+  const next = isSame ? stripped : prefix + stripped
+  lines[state.row] = next
+  const delta = next.length - line.length
+  return { ...state, lines, col: Math.max(0, Math.min(next.length, state.col + delta + (delta < 0 ? 0 : 0) - 0)) }
+}
+
+/** A toolbar command applied at the cursor; `undo` and `redo` walk the history. */
+export function applyCommand(state: EditorState, kind: string): EditorState {
+  if (kind === 'undo') {
+    const history = state.history ?? []
+    const previous = history[history.length - 1]
+    if (previous === undefined) return state
+    const restored = stateFrom(state.draftId, previous)
+    return { ...restored, history: history.slice(0, -1), future: [textOf(state), ...(state.future ?? [])] }
+  }
+  if (kind === 'redo') {
+    const future = state.future ?? []
+    const next = future[0]
+    if (next === undefined) return state
+    const restored = stateFrom(state.draftId, next)
+    return { ...restored, history: [...(state.history ?? []), textOf(state)].slice(-HISTORY_MAX), future: future.slice(1) }
+  }
+  let next = state
+  switch (kind) {
+    case 'bold':
+      next = wrap(state, '**')
+      break
+    case 'italic':
+      next = wrap(state, '_')
+      break
+    case 'code':
+      next = wrap(state, '`')
+      break
+    case 'link': {
+      const lines = [...state.lines]
+      const line = lines[state.row] ?? ''
+      const { start, end } = wordAt(line, state.col)
+      const text = start === end ? 'link text' : line.slice(start, end)
+      const inserted = `[${text}](https://)`
+      lines[state.row] = `${line.slice(0, start)}${inserted}${line.slice(end)}`
+      next = { ...state, lines, col: start + inserted.length - 1 }
+      break
+    }
+    case 'bullet':
+      next = setPrefix(state, '- ')
+      break
+    case 'number':
+      next = setPrefix(state, '1. ')
+      break
+    case 'quote':
+      next = setPrefix(state, '> ')
+      break
+    case 'normal':
+      next = setPrefix(state, '')
+      break
+    case 'h1':
+      next = setPrefix(state, '# ')
+      break
+    case 'h2':
+      next = setPrefix(state, '## ')
+      break
+    case 'h3':
+      next = setPrefix(state, '### ')
+      break
+    default:
+      return state
+  }
+  return remember(state, next)
+}
+
 /**
  * One key applied to the state: printable characters and pasted text are
  * inserted, the named keys edit or move. `width` and `height` are the
@@ -125,6 +264,11 @@ export function applyKey(state: EditorState, event: ClientKeyEvent, width: numbe
   if (event.ctrl === true || event.meta === true) {
     if (key === 'a') next = { ...state, col: 0 }
     else if (key === 'e') next = { ...state, col: line.length }
+    else if (key === 'z' && event.shift === true) return withTop(applyCommand(state, 'redo'), width, height)
+    else if (key === 'z') return withTop(applyCommand(state, 'undo'), width, height)
+    else if (key === 'y') return withTop(applyCommand(state, 'redo'), width, height)
+    else if (key === 'b') return withTop(applyCommand(state, 'bold'), width, height)
+    else if (key === 'i') return withTop(applyCommand(state, 'italic'), width, height)
     else return state
   } else if (key === 'return' || key === 'enter') {
     next = insert(state, '\n')
@@ -174,7 +318,7 @@ export function applyKey(state: EditorState, event: ClientKeyEvent, width: numbe
   } else if (!SPECIAL.has(key) && key.length > 0) {
     next = insert(state, key)
   }
-  return withTop(next, width, height)
+  return withTop(remember(state, next), width, height)
 }
 
 /** The rows drawn: the window of visual rows from `top`, the cursor inverted. */
@@ -190,8 +334,16 @@ export function render(state: EditorState, surface: ClientSurface<EditorState>, 
   for (let index = shown.top; index < Math.min(rows.length, shown.top + height); index += 1) {
     const one = rows[index]
     if (one === undefined) continue
+    const logical = shown.lines[one.row] ?? ''
+    const isHeading = /^#{1,6}\s/.test(logical)
+    const marker = one.start === 0 ? (/^(\s*[-*+]\s|\s*\d+[.)]\s|>\s?)/.exec(logical)?.[0] ?? '') : ''
     if (index !== cursor) {
-      children.push(Text({ wrap: 'truncate', children: one.text === '' ? ' ' : one.text }))
+      const body = one.text.slice(marker.length)
+      children.push(
+        marker === ''
+          ? Text({ wrap: 'truncate', bold: isHeading, children: one.text === '' ? ' ' : one.text })
+          : Box({ flexDirection: 'row', children: [Text({ color: 'claude', children: marker }), Text({ wrap: 'truncate', children: body })] }),
+      )
       continue
     }
     const at = shown.col - one.start
@@ -202,9 +354,9 @@ export function render(state: EditorState, surface: ClientSurface<EditorState>, 
       Box({
         flexDirection: 'row',
         children: [
-          Text({ children: before }),
+          Text({ bold: isHeading, children: before }),
           Text({ inverse: true, children: under }),
-          isEmpty ? Text({ dimColor: true, children: placeholder }) : Text({ children: after }),
+          isEmpty ? Text({ dimColor: true, children: placeholder }) : Text({ bold: isHeading, children: after }),
         ],
       }),
     )
@@ -216,6 +368,18 @@ const Editor: ClientModule<EditorProps, EditorState> = (props, surface) => {
   let state = surface.state
   if (state === undefined || state.draftId !== props.draftId) {
     state = stateFrom(props.draftId, props.text)
+    surface.setState(state)
+  }
+  const command = props.command ?? null
+  if (command !== null && command.id !== (state.commandId ?? 0)) {
+    const width = Math.max(10, surface.columns || 60)
+    const height = Math.max(3, surface.rows || 8)
+    const applied = { ...withTop(applyCommand(state, command.kind), width, height), commandId: command.id }
+    if (textOf(applied) !== textOf(state)) {
+      const post: EditorPost = { type: 'content', draftId: applied.draftId, text: textOf(applied) }
+      surface.post(post)
+    }
+    state = applied
     surface.setState(state)
   }
   const current = state

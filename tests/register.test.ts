@@ -33,12 +33,17 @@ describe('live-notebook hooks', () => {
 
     for (const surface of ['terminal', 'desktop'] as const) {
       const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', requestId: PANE, props: PANE_PROPS })
-      expect(await ui.find({ type: 'Text', text: /^Save to notebook$/ })).toBeDefined()
-      expect((await ui.find({ key: 'folder' }))?.props.value).toBe('General')
+      // The editor page: breadcrumb, Save, the toolbar, the editor; the notebook picker behind ⋯.
+      expect(await ui.find({ type: 'Text', text: /^General$/ })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /^Keep the TTL under one minute\.$/ })).toBeDefined()
+      expect(await ui.find({ key: 'save' })).toBeDefined()
+      expect(await ui.find({ key: 'fmt-bold' })).toBeDefined()
       expect(await ui.find({ key: 'editor' })).toBeDefined()
-      expect(await ui.find({ type: 'Text', text: /^Keep the TTL under one minute\. · excerpt · / })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /^excerpt · / })).toBeDefined()
       expect(await ui.find({ key: 'title' })).toBeUndefined()
       expect(await ui.find({ key: 'tags' })).toBeUndefined()
+      if ((await ui.find({ key: 'folder' })) === undefined) await ui.press({ key: 'editor-more' })
+      expect((await ui.find({ key: 'folder' }))?.props.value).toBe('General')
       await ui.unmount()
     }
 
@@ -46,7 +51,9 @@ describe('live-notebook hooks', () => {
     await ui.key({ key: 'return', in: 'editor' })
     for (const ch of 'Why: cold caches.') await ui.key({ key: ch, in: 'editor' })
     expect(await ui.find({ type: 'Text', text: /48 characters/ })).toBeDefined()
+    if ((await ui.find({ key: 'folder' })) === undefined) await ui.press({ key: 'editor-more' })
     await ui.input({ key: 'folder-new', text: 'Caching' })
+    if ((await ui.find({ key: 'folder' })) === undefined) await ui.press({ key: 'editor-more' })
     expect((await ui.find({ key: 'folder' }))?.props.value).toBe('Caching')
     expect(entryKeys(data)).toEqual([])
     await ui.press({ key: 'save' })
@@ -202,7 +209,9 @@ describe('live-notebook hooks', () => {
     await ui.press({ key: 'snapshot' })
     expect(await ui.find({ type: 'Markdown', text: /only after health checks pass/ })).toBeDefined()
     await ui.press({ key: 'edit' })
-    expect(await ui.find({ type: 'Text', text: /^Edit: Blue\/green, revised$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Blue\/green, revised$/ })).toBeDefined()
+    expect(await ui.find({ key: 'save-edit' })).toBeDefined()
+    await ui.press({ key: 'editor-more' })
     await ui.select({ key: 'edit-folder', value: 'General' })
     for (const ch of ' Always.') await ui.key({ key: ch, in: 'editor' })
     await ui.press({ key: 'save-edit' })
@@ -267,7 +276,8 @@ describe('live-notebook hooks', () => {
     expect(await ui.find({ type: 'Text', text: /Saving failed/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /draft is still here/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^Saved / })).toBeUndefined()
-    expect(await ui.find({ type: 'Text', text: /^Will not persist\. · excerpt · / })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Will not persist\.$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^excerpt · / })).toBeDefined()
     expect((await ui.find({ key: 'save' }))?.text).toBe('Save')
     expect(entryKeys(data)).toEqual([])
     await ui.unmount()
@@ -291,7 +301,8 @@ describe('live-notebook hooks', () => {
     expect((await ui.find({ key: 'pick:0' }))?.text).toBe('You: How do I invalidate the cache?')
 
     await ui.press({ key: 'pick:1' })
-    expect(await ui.find({ type: 'Text', text: /^Set the TTL to 60 seconds\. · whole message · assistant/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Set the TTL to 60 seconds\.$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^whole message · assistant/ })).toBeDefined()
     await ui.press({ key: 'save' })
     const stored = firstEntry(data)
     expect((stored.sources as Array<Record<string, unknown>>)[0]).toMatchObject({

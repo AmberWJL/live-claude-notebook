@@ -36,8 +36,8 @@ describe('save control under assistant replies', () => {
     await row.unmount()
 
     const pane = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', requestId: PANE, props: PANE_PROPS })
-    expect(await pane.find({ type: 'Text', text: /^Save to notebook$/ })).toBeDefined()
-    expect(await pane.find({ type: 'Text', text: /^Cache rule · whole message · assistant/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /^Cache rule$/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /^whole message · assistant/ })).toBeDefined()
     await pane.press({ key: 'save' })
 
     const key = [...data.keys()].find(k => k.startsWith('entry:')) ?? ''

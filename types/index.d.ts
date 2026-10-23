@@ -176,6 +176,8 @@ declare module 'claude-code' {
       showSnapshot: boolean
       /** Notebooks the person toggled away from their default open or closed state. */
       collapsed: string[]
+      /** The toolbar's latest formatting command for the editor; `id` grows so the editor applies each once. */
+      editorCommand: { id: number; kind: string } | null
     }
   }
 }

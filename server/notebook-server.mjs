@@ -11,8 +11,10 @@
  *   node notebook-server.mjs --stop   --root <dir>
  *       Stops the server named in `<root>/server.json`.
  *
- * It binds to 127.0.0.1 only. Every file path a request names is checked to
- * lie under the notes directory.
+ * It binds to 127.0.0.1 only, on the same port every time (remembered in
+ * `<root>/port`), so a page left open keeps working when the server is
+ * replaced. Every file path a request names is checked to lie under the
+ * notes directory.
  */
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -26,7 +28,10 @@ const root = resolve(args.root ?? join(process.env.HOME ?? '.', '.claude', 'live
 const notesDir = join(root, 'notes')
 const webDir = resolve(args.web ?? join(fileURLToPath(new URL('.', import.meta.url)), '..', 'web'))
 const serverFile = join(root, 'server.json')
+const portFile = join(root, 'port')
 const touchFile = join(notesDir, '.touch')
+const DEFAULT_PORT = 47231
+const version = readVersion()
 
 function parseArgs(argv) {
   const out = {}
@@ -43,6 +48,36 @@ function parseArgs(argv) {
     }
   }
   return out
+}
+
+function readVersion() {
+  try {
+    const manifest = new URL('../.claude-plugin/plugin.json', import.meta.url)
+    return String(JSON.parse(readFileSync(fileURLToPath(manifest), 'utf8')).version ?? '0.0.0')
+  } catch {
+    return '0.0.0'
+  }
+}
+
+/** -1, 0 or 1 as version `a` is older than, the same as, or newer than `b`. */
+function compareVersions(a, b) {
+  const pa = String(a ?? '0').split('.').map(n => Number.parseInt(n, 10) || 0)
+  const pb = String(b ?? '0').split('.').map(n => Number.parseInt(n, 10) || 0)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0)
+    if (diff !== 0) return Math.sign(diff)
+  }
+  return 0
+}
+
+function rememberedPort() {
+  try {
+    const port = Number(readFileSync(portFile, 'utf8').trim())
+    if (Number.isInteger(port) && port > 0 && port < 65536) return port
+  } catch {
+    /* none */
+  }
+  return DEFAULT_PORT
 }
 
 function readServerFile() {
@@ -189,6 +224,21 @@ function titleOf(content) {
   return cleaned === '' ? undefined : cleaned.slice(0, 80)
 }
 
+function updateNote(abs, body) {
+  const { meta, content } = parseNote(readFileSync(abs, 'utf8'))
+  const nextContent = typeof body.content === 'string' ? body.content.replace(/\r\n?/g, '\n') : content
+  if (typeof body.title === 'string' && body.title.trim() !== '' && body.title.trim() !== 'Untitled') {
+    meta.title = body.title.trim()
+  } else if (body.title === '' || meta.title === undefined || meta.title === 'Untitled') {
+    // No title of the person's own: the first line of the text names the note.
+    meta.title = titleOf(nextContent) ?? 'Untitled'
+  }
+  meta.updated = new Date().toISOString()
+  writeFileSync(abs, serializeNote(meta, nextContent))
+  touch()
+  return meta
+}
+
 function slugOf(text) {
   const slug = String(text)
     .toLowerCase()
@@ -255,10 +305,17 @@ async function handle(req, res) {
   const url = new URL(req.url ?? '/', 'http://127.0.0.1')
   const { pathname } = url
   try {
-    if (pathname === '/api/health') return send(res, 200, { ok: true, root, web: webDir })
+    if (pathname === '/api/health') return send(res, 200, { ok: true, root, web: webDir, version })
     if (pathname === '/api/tree' && req.method === 'GET') return send(res, 200, { notebooks: listNotebooks() })
 
     if (pathname === '/api/note') {
+      if (req.method === 'POST' && url.searchParams.has('path')) {
+        // The page's last save as it closes: sendBeacon can only POST.
+        const abs = safeNotePath(url.searchParams.get('path'))
+        if (abs === undefined) return send(res, 400, { error: 'bad path' })
+        if (!existsSync(abs)) return send(res, 404, { error: 'not found' })
+        return send(res, 200, { ok: true, meta: updateNote(abs, await readBody(req)) })
+      }
       if (req.method === 'POST') {
         const body = await readBody(req)
         const folder = safeFolder(body.folder)
@@ -286,19 +343,7 @@ async function handle(req, res) {
       }
       if (req.method === 'PUT') {
         if (!existsSync(abs)) return send(res, 404, { error: 'not found' })
-        const body = await readBody(req)
-        const { meta, content } = parseNote(readFileSync(abs, 'utf8'))
-        const nextContent = typeof body.content === 'string' ? body.content.replace(/\r\n?/g, '\n') : content
-        if (typeof body.title === 'string' && body.title.trim() !== '' && body.title.trim() !== 'Untitled') {
-          meta.title = body.title.trim()
-        } else if (body.title === '' || meta.title === undefined || meta.title === 'Untitled') {
-          // No title of the person's own: the first line of the text names the note.
-          meta.title = titleOf(nextContent) ?? 'Untitled'
-        }
-        meta.updated = new Date().toISOString()
-        writeFileSync(abs, serializeNote(meta, nextContent))
-        touch()
-        return send(res, 200, { ok: true, meta })
+        return send(res, 200, { ok: true, meta: updateNote(abs, await readBody(req)) })
       }
       if (req.method === 'DELETE') {
         if (!existsSync(abs)) return send(res, 404, { error: 'not found' })
@@ -399,8 +444,15 @@ async function handle(req, res) {
 function serve() {
   mkdirSync(notesDir, { recursive: true })
   const server = createServer((req, res) => void handle(req, res))
-  const port = Number(args.port ?? 0)
-  server.listen(port, '127.0.0.1', () => {
+  const wanted = args.port !== undefined ? Number(args.port) : rememberedPort()
+  let attempts = 0
+  server.on('error', error => {
+    if (error.code !== 'EADDRINUSE' || wanted === 0) throw error
+    // A server being replaced may hold the port a moment longer; past that, any free port.
+    attempts += 1
+    setTimeout(() => server.listen(attempts < 15 ? wanted : 0, '127.0.0.1'), 200)
+  })
+  server.on('listening', () => {
     const address = server.address()
     const info = {
       port: address.port,
@@ -409,10 +461,13 @@ function serve() {
       startedAt: Date.now(),
       root,
       web: webDir,
+      version,
     }
     writeFileSync(serverFile, JSON.stringify(info))
+    writeFileSync(portFile, String(address.port))
     console.log(JSON.stringify(info))
   })
+  server.listen(wanted, '127.0.0.1')
   const shutdown = () => {
     try {
       const current = readServerFile()
@@ -426,13 +481,19 @@ function serve() {
   process.on('SIGINT', shutdown)
 }
 
-/** Whether the running server serves this site from these folders; an older one is replaced. */
+/**
+ * Whether the running server can stay: it serves these notes, its site is
+ * still on disk, and it is this copy or one at least as new. Another copy of
+ * the same version (the installed one beside a dev folder) is kept, so two
+ * sessions do not take turns replacing each other's server.
+ */
 async function isCurrent(info) {
   try {
     const response = await fetch(`http://127.0.0.1:${info.port}/api/health`, { signal: AbortSignal.timeout(1500) })
     if (!response.ok) return false
     const health = await response.json()
-    return health.root === root && health.web === webDir && existsSync(join(webDir, 'index.html'))
+    if (health.root !== root || typeof health.web !== 'string' || !existsSync(join(health.web, 'index.html'))) return false
+    return health.web === webDir || compareVersions(health.version, version) >= 0
   } catch {
     return false
   }
@@ -445,18 +506,21 @@ async function launch() {
       console.log(JSON.stringify(current))
       return
     }
-    // A server from an earlier install, or one whose site folder moved: replace it.
+    // A server from an earlier install, or one whose site folder moved: replace it on the same port.
     try {
       process.kill(current.pid, 'SIGTERM')
     } catch {
       /* already gone */
     }
-    await new Promise(r => setTimeout(r, 300))
+    for (let waited = 0; waited < 3000 && isAlive(current.pid); waited += 100) {
+      await new Promise(r => setTimeout(r, 100))
+    }
   }
   mkdirSync(root, { recursive: true })
+  const port = current?.port ?? rememberedPort()
   const child = spawn(
     process.execPath,
-    [fileURLToPath(import.meta.url), '--serve', '--root', root, '--web', webDir],
+    [fileURLToPath(import.meta.url), '--serve', '--root', root, '--web', webDir, '--port', String(port)],
     { detached: true, stdio: 'ignore' },
   )
   child.unref()

@@ -43,6 +43,8 @@ export type PaneModel = {
   collapsed: readonly string[]
   /** `e.props.bodyColumns`: the cells across the pane body. */
   width: number
+  /** Rows the editor may take, from the pane's own height. */
+  editorRows: number
   currentSessionId: string
   /**
    * The content editor, a `Client` the hooks module builds (its module path
@@ -64,6 +66,8 @@ export type PaneActions = {
   pick: (candidate: MessageCandidate) => void
   setDraftFolder: (folder: string) => void
   addFolder: (name: string) => void
+  /** A formatting command for the editor's cursor line or word. */
+  format: (kind: string) => void
   save: () => void
   cancel: () => void
   open: (entryId: string) => void
@@ -154,35 +158,6 @@ export function renderNotebookPane(
       </Button>
     </Box>
   ) : null
-
-  function folderRow(key: string, value: string, onSelect: (folder: string) => void): RenderElement {
-    return (
-      <Box flexDirection={isNarrow ? 'column' : 'row'} gap={1}>
-        <Select key={key} label="Notebook" options={folderOptions} value={value} onSelect={onSelect} />
-        <Input
-          key={`${key}-new`}
-          placeholder="new notebook"
-          submitLabel="add"
-          onSubmit={name => {
-            if (name.trim() !== '') actions.addFolder(name)
-          }}
-        />
-      </Box>
-    )
-  }
-
-  function editorBlock(content: string): RenderElement {
-    return (
-      <Box flexDirection="column" marginTop={1}>
-        {model.editor ?? (
-          <Box flexDirection="column">
-            <Markdown text={content} />
-            <Text dimColor>Editing needs the terminal or the desktop app.</Text>
-          </Box>
-        )}
-      </Box>
-    )
-  }
 
   /** One bordered card per note: the type mark, the title, the date. */
   function entryRow(
@@ -429,54 +404,140 @@ export function renderNotebookPane(
     )
   }
 
+  /**
+   * The editor page, for a new capture and for an existing note alike: the
+   * breadcrumb and date, `⋯` (notebook, discard) and Save, a formatting
+   * toolbar, then the editor filling the pane.
+   */
+  function editorPage(options: {
+    folder: string
+    content: string
+    date: number
+    isBlank: boolean
+    meta: string
+    onFolder: (folder: string) => void
+    onSave: () => void
+    onCancel: () => void
+    saveKey: string
+    cancelKey: string
+    folderKey: string
+    saveLabel: string
+    /** A title of the note's own; absent, the first line of the text names it. */
+    title?: string
+  }): RenderElement {
+    const title = options.title ?? (options.content.trim() === '' ? 'Untitled' : deriveTitle(options.content))
+    const headings = [
+      { value: 'normal', label: 'Normal text' },
+      { value: 'h1', label: 'Heading 1' },
+      { value: 'h2', label: 'Heading 2' },
+      { value: 'h3', label: 'Heading 3' },
+    ]
+    const tool = (key: string, label: string, kind: string) => (
+      <Button key={key} plain onPress={() => actions.format(kind)}>
+        {label}
+      </Button>
+    )
+    return (
+      <Box flexDirection="column">
+        <Box justifyContent="space-between" gap={1}>
+          <Box flexDirection="column">
+            <Box gap={1}>
+              <Text dimColor>{options.folder}</Text>
+              <Text dimColor>/</Text>
+              <Text bold>{oneLine(title, Math.max(12, measure - options.folder.length - 16))}</Text>
+            </Box>
+            <Text dimColor>{longDate(options.date).replace(/, \d\d:\d\d$/, '')}</Text>
+          </Box>
+          <Box gap={1}>
+            <Button key="editor-more" plain dimColor onPress={() => actions.toggleNewNotebook()}>
+              ⋯
+            </Button>
+            <Button key={options.saveKey} variant="primary" onPress={() => options.onSave()}>
+              {model.isSaving ? 'Saving…' : options.saveLabel}
+            </Button>
+          </Box>
+        </Box>
+        {model.isNamingNotebook && (
+          <Box flexDirection={isNarrow ? 'column' : 'row'} gap={1} marginTop={1}>
+            <Select key={options.folderKey} label="Notebook" options={folderOptions} value={options.folder} onSelect={options.onFolder} />
+            <Input
+              key={`${options.folderKey}-new`}
+              placeholder="new notebook"
+              submitLabel="add"
+              onSubmit={name => {
+                if (name.trim() !== '') actions.addFolder(name)
+              }}
+            />
+            <Button key={options.cancelKey} plain dimColor onPress={() => options.onCancel()}>
+              Discard
+            </Button>
+          </Box>
+        )}
+        <Box gap={1} flexWrap="wrap" marginTop={1}>
+          <Select key="fmt-heading" options={headings} value="normal" onSelect={value => actions.format(value)} />
+          {tool('fmt-bold', 'B', 'bold')}
+          {tool('fmt-italic', 'I', 'italic')}
+          {tool('fmt-code', '</>', 'code')}
+          {tool('fmt-link', '🔗', 'link')}
+          {tool('fmt-bullet', '• list', 'bullet')}
+          {tool('fmt-number', '1. list', 'number')}
+          {tool('fmt-quote', '❝', 'quote')}
+          {tool('fmt-undo', '↶', 'undo')}
+          {tool('fmt-redo', '↷', 'redo')}
+        </Box>
+        <Box flexDirection="column" borderStyle="round" borderDimColor paddingX={1} marginTop={1}>
+          {model.editor ?? (
+            <Box flexDirection="column">
+              <Markdown text={options.content} />
+              <Text dimColor>Editing needs the terminal or the desktop app.</Text>
+            </Box>
+          )}
+        </Box>
+        <Text dimColor>{options.meta}</Text>
+        {noticeRow}
+      </Box>
+    )
+  }
+
   if (model.view.kind === 'confirm' && model.draft) {
     const draft = model.draft
     const isBlank = draft.source.snapshot === ''
-    return (
-      <Box flexDirection="column">
-        <Text bold>{isBlank ? 'New note' : 'Save to notebook'}</Text>
-        {folderRow('folder', draft.folder, folder => actions.setDraftFolder(folder))}
-        {editorBlock(draft.content)}
-        <Text dimColor>
-          {`${draft.content.trim() === '' ? 'Untitled' : deriveTitle(draft.content)} · ${
-            isBlank
-              ? 'written here'
-              : `${draft.source.captureMode === 'whole_message' ? 'whole message' : 'excerpt'} · ${draft.source.role ?? 'unknown role'}`
-          } · ${draft.content.length.toLocaleString()} characters`}
-        </Text>
-        {noticeRow}
-        <Box gap={1} marginTop={1}>
-          <Button key="save" variant="primary" onPress={() => actions.save()}>
-            {model.isSaving ? 'Saving…' : 'Save'}
-          </Button>
-          <Button key="cancel" role="dismiss" onPress={() => actions.cancel()}>
-            Cancel
-          </Button>
-        </Box>
-      </Box>
-    )
+    return editorPage({
+      folder: draft.folder,
+      content: draft.content,
+      date: draft.source.capturedAt,
+      isBlank,
+      meta: isBlank
+        ? `${draft.content.length.toLocaleString()} characters · written here`
+        : `${draft.source.captureMode === 'whole_message' ? 'whole message' : 'excerpt'} · ${draft.source.role ?? 'unknown role'} · ${draft.content.length.toLocaleString()} characters`,
+      onFolder: folder => actions.setDraftFolder(folder),
+      onSave: () => actions.save(),
+      onCancel: () => actions.cancel(),
+      saveKey: 'save',
+      cancelKey: 'cancel',
+      folderKey: 'folder',
+      saveLabel: 'Save',
+    })
   }
 
   if (model.view.kind === 'edit' && model.edit) {
     const edit = model.edit
     const entry = model.entries.find(one => one.id === edit.entryId)
-    return (
-      <Box flexDirection="column">
-        <Text bold>{`Edit: ${entry?.title ?? 'entry'}`}</Text>
-        {folderRow('edit-folder', edit.folder, folder => actions.setEditFolder(folder))}
-        {editorBlock(edit.content)}
-        <Text dimColor>{`${deriveTitle(edit.content)} · ${edit.content.length.toLocaleString()} characters · the original snapshot is kept`}</Text>
-        {noticeRow}
-        <Box gap={1} marginTop={1}>
-          <Button key="save-edit" variant="primary" onPress={() => actions.saveEdit()}>
-            {model.isSaving ? 'Saving…' : 'Save changes'}
-          </Button>
-          <Button key="cancel-edit" role="dismiss" onPress={() => actions.cancelEdit()}>
-            Cancel
-          </Button>
-        </Box>
-      </Box>
-    )
+    return editorPage({
+      folder: edit.folder,
+      content: edit.content,
+      date: entry?.updatedAt ?? Date.now(),
+      isBlank: false,
+      meta: `${edit.content.length.toLocaleString()} characters · the original snapshot is kept`,
+      onFolder: folder => actions.setEditFolder(folder),
+      onSave: () => actions.saveEdit(),
+      onCancel: () => actions.cancelEdit(),
+      saveKey: 'save-edit',
+      cancelKey: 'cancel-edit',
+      folderKey: 'edit-folder',
+      saveLabel: 'Save changes',
+      ...(entry === undefined ? {} : { title: entry.title }),
+    })
   }
 
   if (model.view.kind === 'detail') {

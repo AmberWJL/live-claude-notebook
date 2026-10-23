@@ -52,11 +52,19 @@
   // ---------------------------------------------------------------- api --
 
   async function api(method, path, body) {
-    const response = await fetch(path, {
-      method,
-      headers: body === undefined ? {} : { 'content-type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    })
+    let response
+    try {
+      response = await fetch(path, {
+        method,
+        headers: body === undefined ? {} : { 'content-type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+    } catch {
+      // No answer at all: the server is down or being replaced.
+      const error = new Error('the notebook server is not reachable')
+      error.offline = true
+      throw error
+    }
     if (!response.ok) {
       let detail = ''
       try {
@@ -254,9 +262,16 @@
       target.meta = { ...target.meta, ...result.meta }
       els.updated.textContent = `Saved ${formatDate(target.meta.updated)}`
       setStatus('Saved')
-      await refreshTree()
+      await refreshTree().catch(() => {})
     } catch (error) {
-      setStatus(`Save failed: ${error.message}`, 'error')
+      if (error.offline) {
+        // The edit stays in the page and goes in once the server is back.
+        setStatus('Not saved yet: reconnecting to the notebook server…', 'error')
+        clearTimeout(state.saveTimer)
+        state.saveTimer = setTimeout(() => void save(), 2000)
+      } else {
+        setStatus(`Save failed: ${error.message}`, 'error')
+      }
     }
   }
 
@@ -337,15 +352,28 @@
     }
   }
 
-  function exportNotebook(name) {
-    const link = document.createElement('a')
-    link.href = `/api/export?name=${encodeURIComponent(name)}`
-    link.download = ''
-    document.body.append(link)
-    link.click()
-    link.remove()
-    state.menuFor = null
-    renderTree()
+  // Fetched first, so an unreachable server shows here instead of as a failed download.
+  async function exportNotebook(name) {
+    try {
+      const response = await fetch(`/api/export?name=${encodeURIComponent(name)}`).catch(() => {
+        throw new Error('Export failed: the notebook server is not reachable. Reopen the notebook from Claude Code.')
+      })
+      if (!response.ok) throw new Error(`Export failed (${response.status})`)
+      const disposition = response.headers.get('content-disposition') ?? ''
+      const fileName = /filename="([^"]+)"/.exec(disposition)?.[1] ?? 'notebook.md'
+      const url = URL.createObjectURL(await response.blob())
+      const link = document.createElement('a')
+      link.href = url
+      link.download = fileName
+      document.body.append(link)
+      link.click()
+      link.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+      state.menuFor = null
+      renderTree()
+    } catch (error) {
+      setStatus(error.message, 'error')
+    }
   }
 
   async function deleteNotebook(name) {

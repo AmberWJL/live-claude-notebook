@@ -57,8 +57,12 @@ import { renderNotebookPane, renderReadOnlyPane, type PaneActions } from './ui/n
 /** The pane's id and the plugin's name, as `plugin.json` spells it. */
 const PANE = 'live-notebook'
 const TITLE = 'Live Notebook'
-/** Rows the content editor takes in the pane. */
-const EDITOR_ROWS = 12
+/** The fewest rows the content editor takes in the pane. */
+const EDITOR_MIN_ROWS = 12
+/** Rows of the pane the editor page needs besides the editor. */
+const EDITOR_CHROME_ROWS = 11
+/** The width asked for while a note is being written or edited. */
+const EDITOR_COLUMNS = 110
 /** How often the notes directory is checked for edits made on the web. */
 const IMPORT_EVERY_MS = 3_000
 /** How long a status line stays before it clears itself. */
@@ -91,6 +95,7 @@ const isLoadingAtom = atom({ plugin: 'live-notebook', key: 'isLoading' } as cons
 const isSavingAtom = atom({ plugin: 'live-notebook', key: 'isSaving' } as const, false)
 const showSnapshotAtom = atom({ plugin: 'live-notebook', key: 'showSnapshot' } as const, false)
 const collapsedAtom = atom({ plugin: 'live-notebook', key: 'collapsed' } as const, [] as string[])
+const editorCommandAtom = atom({ plugin: 'live-notebook', key: 'editorCommand' } as const, null as { id: number; kind: string } | null)
 
 type Dollar = EngineInterface
 
@@ -198,6 +203,18 @@ async function toggleNewNotebook($: Dollar): Promise<void> {
 
 async function toggleSnapshot($: Dollar): Promise<void> {
   await update($, showSnapshotAtom, isShown => !(isShown ?? false))
+}
+
+/** A toolbar press: the editor applies the command once, by its id. */
+async function formatEditor($: Dollar, kind: string): Promise<void> {
+  await update($, editorCommandAtom, current => ({ id: (current?.id ?? 0) + 1, kind }))
+}
+
+/** Opens (or widens) the pane for writing. */
+async function openForEditing($: Dollar): Promise<void> {
+  await update($, editorCommandAtom, () => null)
+  await update($, namingNotebookAtom, () => false)
+  await $.ui.open({ id: PANE, title: TITLE, focus: true, columns: EDITOR_COLUMNS, rows: 30 })
 }
 
 async function toggleNotebook($: Dollar, folder: string): Promise<void> {
@@ -634,7 +651,7 @@ async function saveMessageBlock($: Dollar, text: string, messageId: string): Pro
     await setNotice($, null)
     await setView($, { kind: 'confirm' })
   }
-  await $.ui.open({ id: PANE, title: TITLE, focus: true })
+  await openForEditing($)
 }
 
 async function setDraftFolder($: Dollar, folder: string): Promise<void> {
@@ -680,6 +697,7 @@ async function startBlankDraft($: Dollar): Promise<void> {
   await update($, draftAtom, () => draft)
   await setNotice($, null)
   await setView($, { kind: 'confirm' })
+  await openForEditing($)
 }
 
 /** The editor posted new text: it belongs to the draft or the edit whose id it names. */
@@ -748,6 +766,7 @@ async function startEdit($: Dollar, entryId: string): Promise<void> {
   await update($, editAtom, () => ({ id: crypto.randomUUID(), entryId, content: entry.content, folder: entry.folder }))
   await setNotice($, null)
   await setView($, { kind: 'edit', entryId })
+  await openForEditing($)
 }
 
 async function saveEdit($: Dollar): Promise<void> {
@@ -847,6 +866,7 @@ function actionsOf($: Dollar): PaneActions {
     pick: candidate => void pickCandidate($, candidate),
     setDraftFolder: folder => void setDraftFolder($, folder),
     addFolder: name => void addFolder($, name),
+    format: kind => void formatEditor($, kind),
     save: () => void confirmSave($),
     cancel: () => void cancelDraft($),
     open: entryId => void openEntry($, entryId),
@@ -968,7 +988,8 @@ export const register: Register = on => {
             : 'Pick a message in the Live Notebook pane, then press Save.'
       }
     }
-    await $.ui.open({ id: PANE, title: TITLE, focus: true })
+    if ((await read($, viewAtom)).kind === 'confirm') await openForEditing($)
+    else await $.ui.open({ id: PANE, title: TITLE, focus: true })
     return { text }
   })
 
@@ -1027,15 +1048,18 @@ export const register: Register = on => {
         read($, noticeAtom),
         $.session.id(),
       ])
-    const [typeFilter, isNamingNotebook, isLoading, isSaving, showSnapshot, notesRoot, collapsed] = await Promise.all([
-      read($, typeFilterAtom),
-      read($, namingNotebookAtom),
-      read($, isLoadingAtom),
-      read($, isSavingAtom),
-      read($, showSnapshotAtom),
-      read($, notesRootAtom),
-      read($, collapsedAtom),
-    ])
+    const [typeFilter, isNamingNotebook, isLoading, isSaving, showSnapshot, notesRoot, collapsed, editorCommand] =
+      await Promise.all([
+        read($, typeFilterAtom),
+        read($, namingNotebookAtom),
+        read($, isLoadingAtom),
+        read($, isSavingAtom),
+        read($, showSnapshotAtom),
+        read($, notesRootAtom),
+        read($, collapsedAtom),
+        read($, editorCommandAtom),
+      ])
+    const editorRows = Math.max(EDITOR_MIN_ROWS, (e.props.scroll?.bodyRows ?? 0) - EDITOR_CHROME_ROWS)
     if (e.surface === 'mobile') return renderReadOnlyPane($.ui.resolve(e), entries)
 
     // The editor is a Client; its module path must be a literal in this file.
@@ -1043,8 +1067,8 @@ export const register: Register = on => {
     const editing = view.kind === 'confirm' ? draft : view.kind === 'edit' ? edit : null
     if (editing && e.surface !== 'vscode') {
       const { Client } = $.ui.resolve(e)
-      const props: EditorProps = { draftId: editing.id, text: editing.content }
-      editor = <Client key={EDITOR_KEY} module="./ui/editor.ts" props={props} width="100%" height={EDITOR_ROWS} />
+      const props: EditorProps = { draftId: editing.id, text: editing.content, command: editorCommand }
+      editor = <Client key={EDITOR_KEY} module="./ui/editor.ts" props={props} width="100%" height={editorRows} />
     }
 
     return renderNotebookPane(
@@ -1068,6 +1092,7 @@ export const register: Register = on => {
         collapsed,
         notesRoot,
         width: e.props.bodyColumns,
+        editorRows,
         currentSessionId,
         ...(editor === undefined ? {} : { editor }),
       },
