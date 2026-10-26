@@ -92,14 +92,15 @@ function columnAt(p: number): { left: number; width: number } {
   return { left: mainLeft + (mainWidth - width) / 2, width }
 }
 
-/** The button sits at the foot of its reply's row, `BUTTON_BOTTOM` above the row's end. */
+/** The button sits at the foot of its reply's row, right-aligned under the text as the Mod draws it. */
 const BUTTON_BOTTOM = 6
 const BUTTON_HEIGHT = 34
+const BUTTON_WIDTH = 172
 
 /** Where the kept reply's Save to notebook button is on screen (its top left). */
 function keptButton(scroll: number, p: number): { x: number; y: number } {
   const column = columnAt(p)
-  return { x: column.left + 4, y: WIN.top + VIEW_TOP + TOPS[KEEP] + MESSAGES[KEEP].height - BUTTON_BOTTOM - BUTTON_HEIGHT - scroll }
+  return { x: column.left + column.width - 4 - BUTTON_WIDTH, y: WIN.top + VIEW_TOP + TOPS[KEEP] + MESSAGES[KEEP].height - BUTTON_BOTTOM - BUTTON_HEIGHT - scroll }
 }
 
 const PANE_LEFT = WIN.left + WIN.width - PANE
@@ -141,12 +142,14 @@ const SaveButton: React.FC<{ lit: number; pressed?: boolean }> = ({ lit, pressed
   <div
     style={{
       position: 'absolute',
-      left: 4,
+      right: 4,
       bottom: BUTTON_BOTTOM,
+      width: BUTTON_WIDTH,
       height: BUTTON_HEIGHT,
       boxSizing: 'border-box',
       display: 'inline-flex',
       alignItems: 'center',
+      justifyContent: 'center',
       gap: 8,
       padding: '0 14px',
       borderRadius: 8,
@@ -241,7 +244,7 @@ export const Desktop: React.FC = () => {
   const toButton = ease(frame, Q.cursorIn + 4, Q.clickButton - 2, Easing.inOut(Easing.cubic))
   const toSave = ease(frame, Q.paneOpen[1] + 6, Q.clickSave - 2, Easing.inOut(Easing.cubic))
   const buttonAt = keptButton(KEEP_CENTER, 0)
-  const cursorX = interpolate(toSave, [0, 1], [interpolate(toButton, [0, 1], [1560, buttonAt.x + 90]), SAVE_BUTTON.x + 18])
+  const cursorX = interpolate(toSave, [0, 1], [interpolate(toButton, [0, 1], [1560, buttonAt.x + BUTTON_WIDTH / 2]), SAVE_BUTTON.x + 18])
   const cursorY = interpolate(toSave, [0, 1], [interpolate(toButton, [0, 1], [980, buttonAt.y + 12]), SAVE_BUTTON.y + 12])
   const cursorShown = ease(frame, Q.cursorIn, Q.cursorIn + 10) * (1 - ease(frame, Q.clickSave + 10, Q.clickSave + 20))
   const pressed = (frame >= Q.clickButton && frame < Q.clickButton + 6) || (frame >= Q.clickSave && frame < Q.clickSave + 6)
@@ -309,7 +312,7 @@ export const Desktop: React.FC = () => {
                     top: TOPS[i],
                     height: message.role === 'agent' ? message.height : 'auto',
                     left: message.role === 'user' ? 'auto' : 0,
-                    right: message.role === 'user' ? 0 : 'auto',
+                    right: 0,
                     maxWidth: message.role === 'user' ? '70%' : '100%',
                     fontSize: 21,
                     lineHeight: 1.45,
