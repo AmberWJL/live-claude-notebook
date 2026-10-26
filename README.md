@@ -22,7 +22,7 @@ claude plugin update live-notebook
 ```
 
 You need Claude Code 2.1.293 or newer and Node.js 18 or newer. The web
-notebook needs internet access the first time it opens.
+notebook works offline: its editor ships with it.
 
 ## Quick start
 
@@ -90,20 +90,47 @@ On the web you can also:
 
 Every note is a plain markdown file under
 `~/.claude/live-notebook/notes/<Notebook>/`. Open them in any editor; Live
-Notebook picks up your changes. Deleted notes go to
-`~/.claude/live-notebook/trash/`.
+Notebook picks up your changes. Each file's front matter holds the note's
+title, notebook, type, tags, dates, and, for a note saved from a
+conversation, who wrote it (`role`), the session, and the project folder's
+name. The text exactly as it was first saved, before any edit, is kept
+beside it in `~/.claude/live-notebook/sources/<id>.json`. Deleted notes go
+to `~/.claude/live-notebook/trash/`. Back up that one folder and you have
+everything.
+
+To keep the notes somewhere else, set `LIVE_NOTEBOOK_HOME` to a folder
+before starting Claude Code.
 
 ## Privacy
 
-Your notes stay on your machine. The only thing that leaves it is a short
-piece of each note (its title and opening lines) sent to a small model
-through your own Claude account, to pick the note's type and tags. Nothing
-else is sent anywhere.
+Your notes stay on your machine. Live Notebook has no account, no server of
+its own and no analytics. The web notebook runs on your computer, answers
+only its own page, and loads nothing from the internet.
+
+One thing can leave your machine: to pick a note's type, a title and tags,
+Live Notebook asks a small Claude model through your own Claude Code
+account. It sends a note's title and first 1,200 characters, and for a
+notebook's tags, the titles and first 300 characters of up to 20 notes and
+the names of the project folders they were saved in. By default it only
+does this for notes saved from a Claude Code conversation, whose text
+Claude has already seen. Notes you write yourself on the web or in an
+editor are not sent.
+
+To change that, create `~/.claude/live-notebook/settings.json`:
+
+```json
+{ "ai": "off" }
+```
+
+`"off"` sends nothing, `"chat-only"` is the default, and `"all"` also sends
+notes you wrote yourself.
+
+Live Notebook does not keep the messages around a saved reply, nor your
+project's full path. Notes saved by earlier versions still hold them in
+Claude Code's plugin store, but no file contains them.
 
 ## Troubleshooting
 
-- **The web page is blank the first time.** It needs internet access once to
-  fetch the editor. Reload after you are online.
 - **The web notebook will not open.** Run `npm run web:stop` in the plugin
   folder, then open it again from the pane.
 - **I see an old version.** Run `claude plugin update live-notebook` and

@@ -10,7 +10,6 @@ import type { EngineInterface, Register, RenderElement, RenderSurface } from 'cl
 
 import type {
   AppendedRow,
-  CaptureContext,
   CaptureDraft,
   EditDraft,
   EntryType,
@@ -25,19 +24,23 @@ import type {
 } from '../types'
 import { NotebookError, messageOf } from '../src/domain/errors'
 import { defaultFolders } from '../src/domain/notebook-entry'
+import { aiModeOf, isNoteId, parseSourceFile, projectNameOf, sourcePathFor, type AiMode } from '../src/core/note-format.mjs'
 import { classifyPrompt, parseClassification } from '../src/services/classify'
 import { EXPORT_FORMATS, formatOf } from '../src/services/export-markdown.mjs'
 import { deriveTitle } from '../src/utils/normalize-content'
 import {
   NOTEBOOK_META_FILE,
   NOTES_DIR,
+  SETTINGS_FILE,
   TOUCH_FILE,
+  TRASH_DIR,
   blankNoteFile,
   changedFiles,
   planImport,
   relPathFor,
   serializeNote,
   slugOf,
+  sourceFileOf,
   type NoteFile,
 } from '../src/services/note-files'
 import { NotebookService } from '../src/services/notebook-service'
@@ -45,7 +48,6 @@ import { activeIn, heuristicTags, isCurrent, notebookStats, parseTags, tagsBasis
 import { HostStoreNotebookRepository, type HostStore } from '../src/storage/host-store-adapter'
 import {
   ROWS_LIMIT,
-  contextAround,
   draftFromCandidate,
   draftFromExcerpt,
   findMessageIndex,
@@ -79,6 +81,13 @@ const EDITOR_MIN_ROWS_WITH_PREVIEW = 6
 const EDITOR_COLUMNS = 110
 /** How often the notes directory is checked for edits made on the web. */
 const IMPORT_EVERY_MS = 3_000
+/**
+ * The note files' format this version writes. Below it, every note's file is
+ * rewritten once at session start: 2 added tags, role and project to the
+ * front matter and the capture's sidecar under `sources/`.
+ */
+const FILES_FORMAT = 2
+const FILES_FORMAT_KEY = 'filesFormat'
 /** Where Export puts a notebook's markdown file when there is no Save dialog to ask, under the notes root. */
 const EXPORTS_DIR = 'exports'
 /** macOS's AppleScript runner, which shows the Save dialog; absent, there is no dialog. */
@@ -138,6 +147,8 @@ let paneIsDesktop = false
 /** The first page row under the editor as last drawn, for telling a wheel over the preview from one over the editor. */
 let editorEndRow = Number.POSITIVE_INFINITY
 
+/** The node binary, once found (`nodeBinary`). */
+let nodePath: string | undefined
 /** Whether the terminal theme (the engine's `theme` row, dark by default) is a dark one, read at session start. */
 let isDarkTheme = false
 /** Whether the Mac's appearance, which the desktop app follows, is dark; read at a desktop session's start, null when unknown. */
@@ -442,15 +453,34 @@ function hasDerivedTitle(entry: NotebookEntry): boolean {
 }
 
 /**
+ * When the model may see a note, from `<root>/settings.json`'s `ai`:
+ * `chat-only` (the default) for notes saved from a Claude Code conversation,
+ * whose text the model already had; `all` for every note; `off` for none.
+ */
+async function readAiMode($: Dollar): Promise<AiMode> {
+  try {
+    return aiModeOf(await $.fs.read(`${await notesRootOf($)}/${SETTINGS_FILE}`))
+  } catch {
+    return aiModeOf('')
+  }
+}
+
+function mayShowModel(mode: AiMode, entry: NotebookEntry): boolean {
+  return mode === 'all' || (mode === 'chat-only' && isFromChat(entry))
+}
+
+/**
  * Asks the model for the note's type (insight, learning, ...) and tags and,
  * with `withTitle`, a title of at most six words; the person can change any
- * of them later. A title the person set is never replaced.
+ * of them later. A title the person set is never replaced. A note the AI
+ * setting keeps from the model stays as it is.
  */
 async function classifyEntry($: Dollar, entryId: string, options: { withTitle?: boolean } = {}): Promise<void> {
   const service = serviceOf($)
   const entry = await service.getById(entryId)
   const withTitle = options.withTitle === true && entry !== undefined && hasDerivedTitle(entry)
   if (!entry || (entry.type !== 'other' && !withTitle) || entry.content.trim() === '') return
+  if (!mayShowModel(await readAiMode($), entry)) return
   const result = await $.model.complete({
     model: TAGS_MODEL,
     prompt: classifyPrompt(entry.title, entry.content, { withTitle }),
@@ -479,11 +509,17 @@ async function classifyEntry($: Dollar, entryId: string, options: { withTitle?: 
 // Notes as files
 // ---------------------------------------------------------------------------
 
+/**
+ * Where the notes live: `LIVE_NOTEBOOK_HOME` when set, else
+ * `~/.claude/live-notebook` (`USERPROFILE` stands in for `HOME` on Windows).
+ * The web server is started with the same root.
+ */
 async function notesRootOf($: Dollar): Promise<string> {
   const cached = await read($, notesRootAtom)
   if (cached !== '') return cached
-  const home = await $.env.get('HOME')
-  const root = `${home !== undefined && home !== '' ? home : '.'}/.claude/live-notebook`
+  const [own, home, profile] = await Promise.all([$.env.get('LIVE_NOTEBOOK_HOME'), $.env.get('HOME'), $.env.get('USERPROFILE')])
+  const base = [home, profile].find(one => one !== undefined && one !== '') ?? '.'
+  const root = own !== undefined && own.trim() !== '' ? own.trim().replace(/[\\/]+$/, '') : `${base}/.claude/live-notebook`
   await update($, notesRootAtom, () => root)
   return root
 }
@@ -492,7 +528,11 @@ async function notesDirOf($: Dollar): Promise<string> {
   return `${await notesRootOf($)}/${NOTES_DIR}`
 }
 
-/** Writes an entry's markdown file (assigning a path the first time) and remembers its time. */
+/**
+ * Writes an entry's markdown file (assigning a path the first time) and
+ * remembers its time; a note saved from a conversation also gets its
+ * sidecar the first time, which never changes after.
+ */
 async function writeNoteFile($: Dollar, entry: NotebookEntry): Promise<NotebookEntry> {
   const dir = await notesDirOf($)
   const current = entry.file === undefined ? await serviceOf($).setFile(entry.id, relPathFor(entry)) : entry
@@ -501,7 +541,26 @@ async function writeNoteFile($: Dollar, entry: NotebookEntry): Promise<NotebookE
   await $.fs.write(abs, serializeNote(current))
   const stat = await $.fs.stat(abs)
   await update($, knownAtom, known => ({ ...(known ?? {}), [file]: stat.mtimeMs }))
+  const sidecar = sourceFileOf(current)
+  if (sidecar !== undefined) {
+    const sidecarAbs = `${await notesRootOf($)}/${sidecar.path}`
+    try {
+      if (!(await $.fs.exists(sidecarAbs))) await $.fs.write(sidecarAbs, sidecar.text)
+    } catch {
+      /* the snapshot stays in the store; the next write tries again */
+    }
+  }
   return current
+}
+
+/** The snapshot a note's sidecar keeps, when it has one. */
+async function readSidecar($: Dollar, id: string): Promise<ReturnType<typeof parseSourceFile>> {
+  if (!isNoteId(id)) return undefined
+  try {
+    return parseSourceFile(await $.fs.read(`${await notesRootOf($)}/${sourcePathFor(id)}`))
+  } catch {
+    return undefined
+  }
 }
 
 async function writeNotebookMeta($: Dollar, folder: string, tags: NotebookTags | undefined): Promise<void> {
@@ -523,6 +582,27 @@ async function readNotebookMeta($: Dollar, path: string): Promise<Record<string,
   } catch {
     return {}
   }
+}
+
+/**
+ * Once per files format: every note's file is rewritten from the store, so
+ * files written before carry what this version puts in them (tags, role,
+ * project, the sidecar). Runs after the session's first import, so no edit
+ * made on the web is lost.
+ */
+async function upgradeFiles($: Dollar): Promise<void> {
+  const stored = await $.store.get(FILES_FORMAT_KEY)
+  if (typeof stored === 'number' && stored >= FILES_FORMAT) return
+  for (const entry of await read($, entriesAtom)) {
+    if (entry.status !== 'confirmed' || entry.file === undefined) continue
+    try {
+      await writeNoteFile($, entry)
+    } catch {
+      /* the next session tries again */
+      return
+    }
+  }
+  await $.store.set(FILES_FORMAT_KEY, FILES_FORMAT)
 }
 
 /** Every entry without a file, or whose file is gone, gets one; every notebook gets its directory. */
@@ -611,29 +691,39 @@ async function importChanges($: Dollar, options: { force?: boolean } = {}): Prom
       else if (action.kind === 'folder-gone') await service.removeFolder(action.name)
       else if (action.kind === 'archive') await service.archive(action.entryId)
       else if (action.kind === 'update') {
-        const patch: { content?: string; title?: string; file?: string; folder?: string; type?: EntryType; pinned?: boolean } = {}
+        const patch: { content?: string; title?: string; file?: string; folder?: string; type?: EntryType; tags?: string[]; pinned?: boolean } = {}
         if (action.content !== undefined) patch.content = action.content
         if (action.title !== undefined) patch.title = action.title
         if (action.file !== undefined) patch.file = action.file
         if (action.folder !== undefined) patch.folder = action.folder
         if (action.type !== undefined) patch.type = action.type
+        if (action.tags !== undefined) patch.tags = action.tags
         if (action.pinned !== undefined) patch.pinned = action.pinned
         const updated = await service.update(action.entryId, patch)
         if (updated.type === 'other' && action.content !== undefined) toClassify.push(updated.id)
       } else {
+        // A file with no entry: written on the web or by hand, or a note saved from a conversation being
+        // rebuilt from the folder (its front matter names the session, its sidecar keeps the snapshot).
+        const origin = action.origin
+        const sidecar = origin !== undefined && action.id !== undefined ? await readSidecar($, action.id) : undefined
+        const capturedAt = sidecar === undefined ? NaN : Date.parse(sidecar.capturedAt)
+        const source: Parameters<NotebookService['create']>[0]['source'] = {
+          captureMode: origin?.captureMode ?? 'excerpt',
+          role: origin?.role ?? 'unknown',
+          snapshot: sidecar?.snapshot ?? action.content,
+          capturedAt: Number.isFinite(capturedAt) ? capturedAt : now,
+          context: { before: [], after: [], ...(origin?.project === undefined ? {} : { project: origin.project }) },
+        }
+        if (origin?.sessionId !== undefined) source.sessionId = origin.sessionId
+        if (sidecar?.messageId !== undefined) source.messageId = sidecar.messageId
         const input: Parameters<NotebookService['create']>[0] = {
           content: action.content,
           folder: action.folder,
           file: action.path,
           keepLastFolder: true,
-          source: {
-            captureMode: 'excerpt',
-            role: 'unknown',
-            snapshot: action.content,
-            capturedAt: now,
-            context: { before: [], after: [] },
-          },
+          source,
         }
+        if (action.tags !== undefined) input.tags = action.tags
         if (action.title !== undefined) input.title = action.title
         if (action.id !== undefined) input.id = action.id
         if (action.createdAt !== undefined) input.createdAt = action.createdAt
@@ -689,15 +779,20 @@ async function refreshTags($: Dollar): Promise<void> {
   if (stale.length > 0) $.clock.after(1, () => void generateTags($, stale))
 }
 
+/** A model's tags for each notebook, made only from the notes the AI setting lets it see; with none, the project-based tags stay. */
 async function generateTags($: Dollar, folders: readonly string[]): Promise<void> {
+  const mode = await readAiMode($)
+  if (mode === 'off') return
   for (const folder of folders) {
     const entries = await read($, entriesAtom)
     const stats = notebookStats(entries, folder)
     if (stats.count === 0) continue
     const basis = tagsBasis(stats)
+    const shown = entries.filter(entry => mayShowModel(mode, entry))
+    if (activeIn(shown, folder).length === 0) continue
     const result = await $.model.complete({
       model: TAGS_MODEL,
-      prompt: tagsPrompt(folder, entries),
+      prompt: tagsPrompt(folder, shown),
       maxTokens: TAGS_MAX_TOKENS,
       timeoutMs: TAGS_TIMEOUT_MS,
     })
@@ -747,7 +842,7 @@ async function nodeBinary($: Dollar): Promise<string> {
     /* not on PATH */
   }
   const home = (await $.env.get('HOME')) ?? ''
-  const candidates = ['/opt/homebrew/bin/node', '/usr/local/bin/node']
+  const candidates = ['/opt/homebrew/bin/node', '/usr/local/bin/node', 'C:/Program Files/nodejs/node.exe']
   try {
     const versions = (await $.fs.list(`${home}/.nvm/versions/node`))
       .filter(entry => entry.kind === 'dir')
@@ -766,7 +861,8 @@ async function nodeBinary($: Dollar): Promise<string> {
 async function startServer($: Dollar): Promise<ServerInfo> {
   const root = await notesRootOf($)
   const pluginRoot = $.plugin.root
-  const node = await nodeBinary($)
+  if (nodePath === undefined) nodePath = await nodeBinary($)
+  const node = nodePath
   const run = await $.process.run(
     [node, `${pluginRoot}/server/notebook-server.mjs`, '--launch', '--root', root, '--web', `${pluginRoot}/web`],
     { timeoutMs: 20_000 },
@@ -796,8 +892,18 @@ async function openWeb($: Dollar, file?: string): Promise<void> {
   try {
     const info = await startServer($)
     const url = file === undefined ? info.url : `${info.url}/#/${encodeURIComponent(file)}`
-    const opened = await $.process.run(['open', url], { timeoutMs: 10_000 })
-    if (opened.exitCode !== 0) await $.process.run(['xdg-open', url], { timeoutMs: 10_000 })
+    // macOS, then Linux desktops, then Windows; the first opener present and willing wins.
+    const openers = [['open'], ['xdg-open'], ['rundll32', 'url.dll,FileProtocolHandler']]
+    let isOpened = false
+    for (const opener of openers) {
+      try {
+        isOpened = (await $.process.run([...opener, url], { timeoutMs: 10_000 })).exitCode === 0
+      } catch {
+        isOpened = false
+      }
+      if (isOpened) break
+    }
+    if (!isOpened) throw new NotebookError('storage', `Could not open a browser. The web notebook is at ${url}`)
     await update($, noticeAtom, current => (current?.tone === 'error' ? null : current ?? null))
   } catch (error) {
     await setNotice($, { tone: 'error', text: messageOf(error) })
@@ -833,8 +939,12 @@ async function newNoteInWeb($: Dollar): Promise<void> {
 // Capture
 // ---------------------------------------------------------------------------
 
-/** What every capture records beside the text: when, where, which notebook, and the context around it. */
-async function captureMeta($: Dollar, context?: Pick<CaptureContext, 'before' | 'after'>): Promise<CaptureMeta> {
+/**
+ * What every capture records beside the text: when, which session, which
+ * notebook, and the project's name. Not the messages around it, nor the
+ * project's full path: nothing reads them, and a prompt can hold a secret.
+ */
+async function captureMeta($: Dollar): Promise<CaptureMeta> {
   const [capturedAt, sessionId, cwd, folders] = await Promise.all([
     $.clock.now(),
     $.session.id(),
@@ -842,7 +952,8 @@ async function captureMeta($: Dollar, context?: Pick<CaptureContext, 'before' | 
     read($, foldersAtom),
   ])
   const meta: CaptureMeta = { draftId: crypto.randomUUID(), capturedAt, sessionId, folder: folders.last }
-  if (context !== undefined) meta.context = { ...context, cwd }
+  const project = projectNameOf(cwd)
+  if (project !== undefined) meta.context = { before: [], after: [], project }
   return meta
 }
 
@@ -855,7 +966,7 @@ async function startExcerptDraft(
   const at = findMessageIndex(messages, text)
   const source = { ...origin }
   if (source.role === undefined && at >= 0) source.role = messages[at]?.role
-  const result = draftFromExcerpt(text, source, await captureMeta($, contextAround(messages, at)))
+  const result = draftFromExcerpt(text, source, await captureMeta($))
   if (!result.ok) {
     await setNotice($, { tone: 'error', text: result.message })
     await setView($, { kind: 'home' })
@@ -872,7 +983,7 @@ async function saveMessageBlock($: Dollar, text: string, messageId: string): Pro
   const messages = await $.session.messages()
   const at = findMessageIndex(messages, text)
   const candidate: MessageCandidate = { index: at, role: 'assistant', text, messageId }
-  const result = draftFromCandidate(candidate, await captureMeta($, contextAround(messages, at)))
+  const result = draftFromCandidate(candidate, await captureMeta($))
   if (!result.ok) {
     await setNotice($, { tone: 'error', text: result.message })
     await setView($, { kind: 'home' })
@@ -1175,14 +1286,22 @@ async function archiveEntry($: Dollar, entryId: string): Promise<void> {
   }
 }
 
-/** Removes a note's file and forgets its mtime; a file that will not go stays, and the next import archives nothing for it since the entry has moved on. */
-async function forgetNoteFile($: Dollar, file: string): Promise<void> {
-  const abs = `${await notesDirOf($)}/${file}`
+/**
+ * Deletes files. `$.fs` cannot, so node does it: the one runtime every
+ * platform here has (Windows has no `rm`). A file that will not go stays.
+ */
+async function removeFiles($: Dollar, paths: readonly string[]): Promise<void> {
+  if (paths.length === 0) return
   try {
-    await $.process.run(['rm', '-f', abs], { timeoutMs: 5_000 })
+    if (nodePath === undefined) nodePath = await nodeBinary($)
+    const script = 'for (const path of process.argv.slice(1)) require("node:fs").rmSync(path, { force: true })'
+    await $.process.run([nodePath, '-e', script, ...paths], { timeoutMs: 10_000 })
   } catch {
-    /* the file stays */
+    /* the files stay */
   }
+}
+
+async function forgetKnown($: Dollar, file: string): Promise<void> {
   await update($, knownAtom, known => {
     const next = { ...(known ?? {}) }
     delete next[file]
@@ -1190,12 +1309,50 @@ async function forgetNoteFile($: Dollar, file: string): Promise<void> {
   })
 }
 
+/** Removes a note's old file after it moved and forgets its mtime; the next import archives nothing for it since the entry has moved on. */
+async function forgetNoteFile($: Dollar, file: string): Promise<void> {
+  await removeFiles($, [`${await notesDirOf($)}/${file}`])
+  await forgetKnown($, file)
+}
+
+/**
+ * Delete: the note's file goes to `<root>/trash/<Notebook>/`, and its
+ * sidecar to `<root>/trash/sources/`, as the web's Delete does, so a
+ * deleted note can be put back by hand.
+ */
+async function trashNoteFile($: Dollar, file: string, id: string): Promise<void> {
+  const root = await notesRootOf($)
+  const abs = `${root}/${NOTES_DIR}/${file}`
+  const stamp = new Date(await $.clock.now()).toISOString().replace(/[:.]/g, '-')
+  const [folder = '', name = ''] = file.split('/')
+  const moved: string[] = []
+  try {
+    await $.fs.write(`${root}/${TRASH_DIR}/${folder}/${name.replace(/\.md$/, '')}--${stamp}.md`, await $.fs.read(abs))
+    moved.push(abs)
+  } catch {
+    /* no file to keep */
+  }
+  if (isNoteId(id)) {
+    const sidecar = `${root}/${sourcePathFor(id)}`
+    try {
+      if (await $.fs.exists(sidecar)) {
+        await $.fs.write(`${root}/${TRASH_DIR}/${sourcePathFor(id)}`, await $.fs.read(sidecar))
+        moved.push(sidecar)
+      }
+    } catch {
+      /* the sidecar stays */
+    }
+  }
+  await removeFiles($, moved)
+  await forgetKnown($, file)
+}
+
 async function deleteEntry($: Dollar, entryId: string): Promise<void> {
   try {
     const service = serviceOf($)
     const entry = await service.getById(entryId)
     await service.delete(entryId)
-    if (entry?.file !== undefined) await forgetNoteFile($, entry.file)
+    if (entry?.file !== undefined) await trashNoteFile($, entry.file, entry.id)
     await afterChange($)
     await update($, editAtom, edit => (edit?.entryId === entryId ? null : edit ?? null))
     await setNotice($, null)
@@ -1266,6 +1423,7 @@ export const register: Register = on => {
       await refreshEntries($)
       await importChanges($, { force: true })
       await exportAll($)
+      await upgradeFiles($)
       await refreshTags($)
     } catch (error) {
       await setNotice($, { tone: 'error', text: `Live Notebook could not read its store: ${messageOf(error)}` })

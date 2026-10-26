@@ -109,8 +109,10 @@ function validateContext(value: unknown): Validation<CaptureContext> {
   const after = validateContextMessages(value.after, 'after')
   if (!after.ok) return after
   if (value.cwd !== undefined && typeof value.cwd !== 'string') return { ok: false, reason: 'context.cwd is not a string' }
+  if (value.project !== undefined && typeof value.project !== 'string') return { ok: false, reason: 'context.project is not a string' }
   const context: CaptureContext = { before: before.value, after: after.value }
   if (typeof value.cwd === 'string') context.cwd = value.cwd
+  if (typeof value.project === 'string') context.project = value.project
   return { ok: true, value: context }
 }
 

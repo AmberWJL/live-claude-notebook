@@ -4,6 +4,7 @@
  * with better ones. Pure; the hooks module makes the model call.
  */
 import type { NotebookEntry, NotebookTags } from '../../types'
+import { projectNameOf } from '../core/note-format.mjs'
 import { byRecency } from './search-service'
 
 export type NotebookStats = {
@@ -54,10 +55,8 @@ export function projectsOf(entries: readonly NotebookEntry[], folder: string): s
   const counts = new Map<string, number>()
   for (const entry of activeIn(entries, folder)) {
     for (const source of entry.sources) {
-      const cwd = source.context?.cwd
-      if (cwd === undefined) continue
-      const name = cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? ''
-      if (name !== '') counts.set(name, (counts.get(name) ?? 0) + 1)
+      const name = source.context?.project ?? projectNameOf(source.context?.cwd)
+      if (name !== undefined) counts.set(name, (counts.get(name) ?? 0) + 1)
     }
   }
   return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([name]) => name)

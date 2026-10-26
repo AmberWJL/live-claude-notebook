@@ -23,7 +23,7 @@ describe('save control under assistant replies', () => {
     }
   })
 
-  test('pressing save drafts the whole block with its message id and context, then Save stores it', async ($, on) => {
+  test('pressing save drafts the whole block with its message id and project, then Save stores it', async ($, on) => {
     const data = fakeStore(on)
     fakeFs(on)
     const engine = fakeEngine(on, MESSAGES)
@@ -51,11 +51,8 @@ describe('save control under assistant replies', () => {
       sessionId: 'session-test',
       snapshot: BLOCK.text,
       capturedAt: 7,
-      context: {
-        before: [{ role: 'user', text: 'What is the cache rule?' }],
-        after: [],
-        cwd: '/tmp/live-notebook-test',
-      },
+      // The project's name only: not the messages around the reply, nor the directory's path.
+      context: { before: [], after: [], project: 'live-notebook-test' },
     })
     // Saved: the list again, with a confirmation that opens the note.
     expect(await pane.find({ type: 'Text', text: /^Saved to General$/ })).toBeDefined()

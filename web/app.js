@@ -2,7 +2,8 @@
  * in a Vditor instant-rendering editor, autosaved to its markdown file
  * through the local server. Plain script, no build step. */
 ;(() => {
-  const VDITOR_CDN = 'https://unpkg.com/vditor@4.0.1'
+  // Vditor ships with the notebook (web/vendor/vditor), so the page needs no network and loads no one else's script.
+  const VDITOR_CDN = '/vendor/vditor'
   const $ = id => document.getElementById(id)
   const els = {
     tree: $('tree'),
@@ -31,6 +32,9 @@
     dirty: false,
     saveTimer: null,
     query: '',
+    /** The server's search answer: `{ query, paths }`, or null before one. */
+    hits: null,
+    searchTimer: null,
     collapsed: new Set(),
     /** True once the person typed in the title field of the open note. */
     titleTouched: false,
@@ -119,10 +123,27 @@
     els.dates.textContent = parts.join(' · ')
   }
 
+  /**
+   * Whether a note matches the search: the server's answer for the query
+   * (every word of every note, and its tags) once it has come, the title and
+   * opening lines meanwhile.
+   */
   function matches(note, query) {
     if (query === '') return true
+    if (state.hits !== null && state.hits.query === query) return state.hits.paths.has(note.path)
     const q = query.toLowerCase()
     return note.title.toLowerCase().includes(q) || note.preview.toLowerCase().includes(q)
+  }
+
+  async function searchNotes(query) {
+    try {
+      const result = await api('GET', `/api/search?q=${encodeURIComponent(query)}`)
+      if (state.query.trim() !== query) return
+      state.hits = { query, paths: new Set(result.paths) }
+      renderTree()
+    } catch (error) {
+      setStatus(error.message, 'error')
+    }
   }
 
   function renderTree() {
@@ -320,6 +341,8 @@
   async function refreshTree() {
     const { notebooks } = await api('GET', '/api/tree')
     state.notebooks = notebooks
+    // A note saved or edited since the last search may match now.
+    if (state.query.trim() !== '') void searchNotes(state.query.trim())
     // A picked note that is gone (deleted, archived, saved elsewhere) leaves the pick.
     const present = new Set(allNotes().map(note => note.path))
     for (const path of [...state.selection]) if (!present.has(path)) state.selection.delete(path)
@@ -800,6 +823,9 @@
   els.search.addEventListener('input', () => {
     state.query = els.search.value
     renderTree()
+    clearTimeout(state.searchTimer)
+    const query = state.query.trim()
+    if (query !== '') state.searchTimer = setTimeout(() => void searchNotes(query), 150)
   })
   document.addEventListener('keydown', event => {
     const inField = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable

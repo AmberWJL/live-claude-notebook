@@ -2,7 +2,6 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import type { AppendedRow } from '../types'
 import {
-  contextAround,
   draftFromCandidate,
   draftFromExcerpt,
   findMessageIndex,
@@ -58,7 +57,7 @@ describe('drafts', () => {
   })
 })
 
-describe('context around a capture', () => {
+describe('where a capture came from', () => {
   const messages = [
     { role: 'user' as const, text: 'q1' },
     { role: 'assistant' as const, text: '' },
@@ -68,28 +67,6 @@ describe('context around a capture', () => {
     { role: 'user' as const, text: 'q3' },
   ]
 
-  test('contextAround skips empty messages and bounds the window', async () => {
-    expect(contextAround(messages, 4)).toEqual({
-      before: [
-        { role: 'assistant', text: 'a1' },
-        { role: 'user', text: 'q2' },
-      ],
-      after: [{ role: 'user', text: 'q3' }],
-    })
-    expect(contextAround(messages, 2, { before: 5, after: 0 })).toEqual({
-      before: [{ role: 'user', text: 'q1' }],
-      after: [],
-    })
-    expect(contextAround(messages, -1)).toEqual({ before: [], after: [] })
-  })
-
-  test('contextAround clips long neighbours', async () => {
-    const long = [{ role: 'user' as const, text: 'y'.repeat(5000) }, { role: 'assistant' as const, text: 'x' }]
-    const { before } = contextAround(long, 1)
-    expect(before[0]?.text.length).toBe(1500)
-    expect(before[0]?.text.endsWith('…')).toBe(true)
-  })
-
   test('findMessageIndex prefers an exact match, then containment, newest first', async () => {
     expect(findMessageIndex(messages, 'a2 with more words')).toBe(4)
     expect(findMessageIndex(messages, 'more words')).toBe(4)
@@ -98,9 +75,9 @@ describe('context around a capture', () => {
     expect(findMessageIndex(messages, '   ')).toBe(-1)
   })
 
-  test('a draft carries the context it was given', async () => {
-    const result = draftFromExcerpt('part', {}, { ...meta, context: { before: [{ role: 'user', text: 'q' }], after: [], cwd: '/p' } })
+  test('a draft carries the project it was given', async () => {
+    const result = draftFromExcerpt('part', {}, { ...meta, context: { before: [], after: [], project: 'p' } })
     expect(result.ok).toBe(true)
-    if (result.ok) expect(result.draft.source.context).toEqual({ before: [{ role: 'user', text: 'q' }], after: [], cwd: '/p' })
+    if (result.ok) expect(result.draft.source.context).toEqual({ before: [], after: [], project: 'p' })
   })
 })

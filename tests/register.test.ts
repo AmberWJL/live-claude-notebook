@@ -163,7 +163,7 @@ describe('live-notebook hooks', () => {
       captureMode: 'excerpt',
       snapshot: 'Keep the TTL under one minute.',
       capturedAt: 1_760_000_000_000,
-      context: { before: [], after: [], cwd: '/tmp/live-notebook-test' },
+      context: { before: [], after: [], project: 'live-notebook-test' },
     })
     expect(data.get('folders')).toEqual({ names: ['General', 'Caching'], last: 'Caching' })
     const file = fs.read(`${NOTES}/${String(stored.file)}`) ?? ''
@@ -308,7 +308,17 @@ describe('live-notebook hooks', () => {
       createdAt: Date.parse('2026-01-01T00:00:00.000Z'),
     })
     expect(data.get('folders')).toEqual({ names: ['General', 'Ops', 'Ideas'], last: 'Ops' })
-    // A note made on the web has no type until the model gives it one, as a save in the pane would.
+    // A note made on the web is kept from the model by default: its text may never have been in a conversation.
+    await clock.advance(5)
+    expect(engine.prompts.filter(prompt => prompt.startsWith('Classify'))).toHaveLength(0)
+    expect(data.get('entry:abcd1234-0000-0000-0000-000000000000')).toMatchObject({ type: 'other' })
+    // With `"ai": "all"` in settings.json, its next edit gets a type from the model, as a save in the pane would.
+    fs.writeFromWeb(`${ROOT}/settings.json`, JSON.stringify({ ai: 'all' }))
+    fs.writeFromWeb(
+      `${NOTES}/Ideas/try-canaries--abcd1234.md`,
+      '---\nid: abcd1234-0000-0000-0000-000000000000\ntitle: "Try canaries"\ncreated: 2026-01-01T00:00:00.000Z\n---\n\nRoll out to 5% of hosts first.\n',
+    )
+    await clock.advance(3_000)
     await clock.advance(5)
     expect(engine.prompts.filter(prompt => prompt.startsWith('Classify'))).toHaveLength(1)
     expect(data.get('entry:abcd1234-0000-0000-0000-000000000000')).toMatchObject({ type: 'insight', tags: ['caching', 'ttl'] })
@@ -372,8 +382,7 @@ describe('live-notebook hooks', () => {
 
     const ran = await $.command.run({ ...RUN, command: 'notebook', args: 'web' })
     expect(ran.text).toBe('Web notebook: http://127.0.0.1:4321')
-    expect(engine.commands[4]?.[0]).toBe('open')
-    expect(engine.commands[4]?.[1]).toBe('http://127.0.0.1:4321')
+    expect(engine.commands.at(-1)).toEqual(['open', 'http://127.0.0.1:4321'])
 
     const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: PANE_PROPS })
     // No Open in browser button on the home page: /notebook web and Open in web on a note do that.
@@ -756,7 +765,9 @@ describe('live-notebook hooks', () => {
     await ui.press({ key: 'save-edit' })
     expect(data.get('entry:e-1')).toMatchObject({ folder: 'General', file: 'General/blue-green-deploy--e-1.md' })
     expect(fs.read(`${NOTES}/General/blue-green-deploy--e-1.md`)).toContain('health checks pass. Always.')
-    expect(engine.commands).toContainEqual(['rm', '-f', `${NOTES}/Ops/blue-green-deploy--e-1.md`])
+    // Node removes the old file: `$.fs` cannot, and Windows has no `rm`.
+    expect(engine.commands.at(-1)?.slice(0, 2)).toEqual(['node', '-e'])
+    expect(engine.commands.at(-1)?.at(-1)).toBe(`${NOTES}/Ops/blue-green-deploy--e-1.md`)
     // The title is the breadcrumb itself: pressed, a field holding it; Enter puts the new title back, and a new
     // title alone is an edit kept.
     await ui.press({ key: 'edit' })
@@ -894,5 +905,134 @@ describe('live-notebook hooks', () => {
       await ui.press({ key: 'cancel' })
       await ui.unmount()
     }
+  })
+
+  test('a note file carries tags, role and project, its sidecar the snapshot; Delete trashes both; the folder alone rebuilds the note', async ($, on) => {
+    const id = 'abcdef12-0000-0000-0000-000000000000'
+    const fromChat = {
+      ...seeded,
+      id,
+      sources: [
+        {
+          captureMode: 'whole_message',
+          role: 'assistant',
+          sessionId: 's-9',
+          messageId: 'm-1',
+          snapshot: 'Switch traffic only after health checks pass!',
+          capturedAt: 5,
+          // A capture by an earlier version: the messages around it and the full directory, which files never carry.
+          context: { before: [{ role: 'user', text: 'my secret prompt' }], after: [], cwd: '/Users/x/work/shop' },
+        },
+      ],
+    }
+    const data = fakeStore(on, { meta: { schemaVersion: 1 }, folders: { names: ['General', 'Ops'], last: 'Ops' }, [`entry:${id}`]: fromChat })
+    const fs = fakeFs(on)
+    const engine = fakeEngine(on)
+    mock.clock(on, { now: 100 })
+    await $.session.start(START)
+    const path = `${NOTES}/Ops/blue-green-deploy--abcdef12.md`
+    const text = fs.read(path) ?? ''
+    expect(text).toContain('tags: ["ops"]')
+    expect(text).toContain('role: assistant')
+    expect(text).toContain('session: s-9')
+    expect(text).toContain('project: "shop"')
+    expect(text).not.toContain('/Users/x')
+    expect(text).not.toContain('secret')
+    const sidecarPath = `${ROOT}/sources/${id}.json`
+    expect(JSON.parse(fs.read(sidecarPath) ?? '{}')).toMatchObject({ id, snapshot: 'Switch traffic only after health checks pass!', messageId: 'm-1' })
+    expect(data.get('filesFormat')).toBe(2)
+
+    // Delete on the note's page: the file and the sidecar go to the trash, and node removes the originals.
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: PANE_PROPS })
+    await ui.press({ key: `entry:${id}` })
+    await ui.press({ key: 'page-more' })
+    await ui.press({ key: 'delete' })
+    // Arming Delete redraws the page with its menu shut; the confirmation is behind ⋯ again.
+    if ((await ui.find({ key: 'delete-confirm' })) === undefined) await ui.press({ key: 'page-more' })
+    await ui.press({ key: 'delete-confirm' })
+    expect(data.get(`entry:${id}`)).toBeUndefined()
+    const trashed = [...fs.files.keys()].filter(one => one.startsWith(`${ROOT}/trash/Ops/blue-green-deploy--abcdef12--`))
+    expect(trashed).toHaveLength(1)
+    expect(fs.read(trashed[0] ?? '')).toBe(text)
+    expect(fs.read(`${ROOT}/trash/sources/${id}.json`)).toBe(fs.read(sidecarPath))
+    const removal = engine.commands.at(-1) ?? []
+    expect(removal.slice(0, 2)).toEqual(['node', '-e'])
+    expect(removal.slice(3)).toEqual([path, sidecarPath])
+    await ui.unmount()
+  })
+
+  test('a fresh store rebuilds a captured note from its file and sidecar', async ($, on) => {
+    const id = 'abcdef12-0000-0000-0000-000000000000'
+    const data = fakeStore(on)
+    fakeFs(on, {
+      [`${NOTES}/Ops/blue-green-deploy--abcdef12.md`]: [
+        '---',
+        `id: ${id}`,
+        'title: "Blue/green deploy"',
+        'folder: "Ops"',
+        'type: learning',
+        'tags: ["ops", "deploys"]',
+        'created: 2026-01-01T00:00:00.000Z',
+        'updated: 2026-01-02T00:00:00.000Z',
+        'captured: whole_message',
+        'role: assistant',
+        'session: s-9',
+        'project: "shop"',
+        '---',
+        '',
+        'Switch traffic only after health checks pass.',
+        '',
+      ].join('\n'),
+      [`${ROOT}/sources/${id}.json`]: JSON.stringify({
+        id,
+        captureMode: 'whole_message',
+        capturedAt: '2026-01-01T00:00:00.000Z',
+        snapshot: 'Switch traffic only after health checks pass!',
+        messageId: 'm-1',
+      }),
+    })
+    const engine = fakeEngine(on)
+    const clock = mock.clock(on, { now: 100 })
+    await $.session.start(START)
+    expect(data.get(`entry:${id}`)).toMatchObject({
+      title: 'Blue/green deploy',
+      folder: 'Ops',
+      type: 'learning',
+      tags: ['ops', 'deploys'],
+      file: 'Ops/blue-green-deploy--abcdef12.md',
+      sources: [
+        {
+          captureMode: 'whole_message',
+          role: 'assistant',
+          sessionId: 's-9',
+          messageId: 'm-1',
+          snapshot: 'Switch traffic only after health checks pass!',
+          capturedAt: Date.parse('2026-01-01T00:00:00.000Z'),
+          context: { before: [], after: [], project: 'shop' },
+        },
+      ],
+    })
+    // Typed already, so the model is not asked.
+    await clock.advance(5)
+    expect(engine.prompts.filter(prompt => prompt.startsWith('Classify'))).toHaveLength(0)
+  })
+
+  test('on a desktop the editor widens its text to where the pointer finds its box ends', async ($, on) => {
+    fakeStore(on)
+    fakeFs(on)
+    fakeEngine(on)
+    mock.clock(on)
+    await $.session.start(START)
+    await $.command.run({ ...RUN, command: 'save', args: 'word '.repeat(30).trim() })
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', requestId: PANE, props: PANE_PROPS })
+    // The 76 cells the hooks module counted for an 80-cell pane: fifteen words to a row.
+    expect(editorLines(await ui.drawn({ in: 'editor' }))[0]).toBe('word '.repeat(15).trim())
+    // A hover at column 99 shows the box is 100 cells across: twenty words to a row.
+    await ui.pointer({ type: 'move', x: 99, y: 0, in: 'editor' })
+    expect(editorLines(await ui.drawn({ in: 'editor' }))[0]).toBe('word '.repeat(20).trim())
+    // A drag past the edge does not widen it: the region keeps the pointer while the button is held.
+    await ui.pointer({ type: 'move', x: 140, y: 0, button: 'left', in: 'editor' })
+    expect(editorLines(await ui.drawn({ in: 'editor' }))[0]).toBe('word '.repeat(20).trim())
+    await ui.unmount()
   })
 })

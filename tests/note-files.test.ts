@@ -38,6 +38,7 @@ describe('note files', () => {
       created: '2023-11-14T22:13:20.000Z',
       updated: '2023-11-14T22:15:00.000Z',
       captured: 'whole_message',
+      role: 'assistant',
       session: 's-1',
     })
     expect(parsed.content).toBe(one.content)

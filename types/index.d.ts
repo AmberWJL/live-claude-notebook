@@ -20,14 +20,18 @@ export type ContextMessage = {
 }
 
 /**
- * What surrounded the captured message when it was saved: the messages just
- * before and after it (each cut to a bounded length) and the project the
- * session ran in. Recorded automatically; never edited.
+ * Where a capture was made. Captures record only the project's name; earlier
+ * versions also kept the messages just before and after (each cut to a
+ * bounded length) and the project's full directory, and those stay readable.
+ * Recorded automatically; never edited.
  */
 export type CaptureContext = {
   before: ContextMessage[]
   after: ContextMessage[]
+  /** The project directory's full path (earlier versions' captures). */
   cwd?: string
+  /** The project directory's name, not its path. */
+  project?: string
 }
 
 export type SourceReference = {
