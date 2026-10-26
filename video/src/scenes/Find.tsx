@@ -1,10 +1,11 @@
 import React from 'react'
 import { Img, interpolate, staticFile, useCurrentFrame } from 'remotion'
 
+import { FIND as Q, FRAMES } from '../cues.mjs'
 import { Accent, Caption, Scene, Typed, ease, useSpring } from '../kit'
 import { C, MONO } from '../theme'
 
-export const FIND_FRAMES = 180
+export const FIND_FRAMES = FRAMES.find
 
 const RESULTS = [
   { notebook: 'Payments', title: 'Retry with backoff', snippet: '…exponential backoff and jitter, and send an idempotency key…' },
@@ -15,7 +16,7 @@ const BAR = { left: 140, top: 300, width: 900 }
 
 export const Find: React.FC = () => {
   const frame = useCurrentFrame()
-  const shot = useSpring(96, 20, 1)
+  const shot = useSpring(Q.shot, 20, 1)
   const drift = interpolate(frame, [96, FIND_FRAMES], [0, 0.035], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
   const listOut = ease(frame, 96, 116)
 
@@ -48,11 +49,11 @@ export const Find: React.FC = () => {
             <path d="M16 16 L22 22" stroke={C.muted} strokeWidth="2.4" strokeLinecap="round" />
           </svg>
           <span>
-            <Typed text="retry" delay={20} cps={9} caret />
+            <Typed text={Q.word} delay={Q.typeAt} cps={Q.cps} caret />
           </span>
         </div>
         {RESULTS.map((result, i) => {
-          const shown = ease(frame, 44 + i * 7, 58 + i * 7)
+          const shown = ease(frame, Q.results[i], Q.results[i] + 14)
           return (
             <div
               key={result.title}

@@ -1,36 +1,37 @@
 import React from 'react'
-import { AbsoluteFill, Series } from 'remotion'
+import { AbsoluteFill, Html5Audio, Series, staticFile } from 'remotion'
 
-import { CAPTURE_FRAMES, Capture } from './scenes/Capture'
-import { END_FRAMES, EndCard } from './scenes/EndCard'
-import { FIND_FRAMES, Find } from './scenes/Find'
-import { LOCAL_FRAMES, Local } from './scenes/Local'
-import { SOURCES_FRAMES, Sources } from './scenes/Sources'
+import { Desktop } from './scenes/Desktop'
+import { EndCard } from './scenes/EndCard'
+import { Find } from './scenes/Find'
+import { Local } from './scenes/Local'
+import { Sources } from './scenes/Sources'
+import { FILM_FRAMES as FRAMES, SCENES } from './cues.mjs'
 import { C } from './theme'
 
 /**
- * The home page's film: an answer worth keeping scrolls away; one click
- * keeps it as a Markdown file; every tool feeds the same folder; search
- * finds it; it all stays on your computer; how to install.
+ * The home page's film: in Claude Code desktop, an answer worth keeping
+ * scrolls away; the Save to notebook button under it keeps it as a Markdown
+ * file; every tool feeds the same folder; search finds it; it all stays on
+ * your computer; how to install. The soundtrack (scripts/soundtrack.mjs) is
+ * timed to the same cues.
  */
-const SCENES = [
-  { component: Capture, frames: CAPTURE_FRAMES },
-  { component: Sources, frames: SOURCES_FRAMES },
-  { component: Find, frames: FIND_FRAMES },
-  { component: Local, frames: LOCAL_FRAMES },
-  { component: EndCard, frames: END_FRAMES },
-]
+const COMPONENTS: Record<string, React.FC> = { desktop: Desktop, sources: Sources, find: Find, local: Local, end: EndCard }
 
-export const FILM_FRAMES = SCENES.reduce((sum, scene) => sum + scene.frames, 0)
+export const FILM_FRAMES = FRAMES
 
 export const Film: React.FC = () => (
   <AbsoluteFill style={{ backgroundColor: C.ground }}>
     <Series>
-      {SCENES.map(({ component: Component, frames }, i) => (
-        <Series.Sequence key={i} durationInFrames={frames}>
-          <Component />
-        </Series.Sequence>
-      ))}
+      {SCENES.map(([name, frames]) => {
+        const Component = COMPONENTS[name]
+        return (
+          <Series.Sequence key={name} durationInFrames={frames}>
+            <Component />
+          </Series.Sequence>
+        )
+      })}
     </Series>
+    <Html5Audio src={staticFile('soundtrack.wav')} />
   </AbsoluteFill>
 )

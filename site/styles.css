@@ -441,6 +441,20 @@ body.home {
   outline-offset: 2px;
 }
 
+.film-button.sound {
+  display: flex;
+  gap: 6px;
+  width: auto;
+  padding: 0 12px;
+  border-radius: 19px;
+  font: 600 13px var(--sans);
+}
+
+.film-button.sound[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .film-progress {
   flex: 1;
   height: 4px;

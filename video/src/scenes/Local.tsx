@@ -1,24 +1,25 @@
 import React from 'react'
 import { useCurrentFrame } from 'remotion'
 
+import { FRAMES, LOCAL as Q } from '../cues.mjs'
 import { Scene, ease, useSpring } from '../kit'
 import { C, MONO } from '../theme'
 
-export const LOCAL_FRAMES = 150
+export const LOCAL_FRAMES = FRAMES.local
 
 const LINES = [
-  { text: 'No account.', at: 6 },
-  { text: 'No cloud.', at: 22 },
-  { text: 'Just Markdown files', at: 40 },
-  { text: 'on your computer.', at: 50, accent: true },
+  { text: 'No account.', at: Q.lines[0] },
+  { text: 'No cloud.', at: Q.lines[1] },
+  { text: 'Just Markdown files', at: Q.lines[2] },
+  { text: 'on your computer.', at: Q.lines[3], accent: true },
 ]
 
 /** A laptop holding the notes folder; a cloud above it that never gets them. */
 const Laptop: React.FC = () => {
   const frame = useCurrentFrame()
   const laptop = useSpring(10, 16)
-  const cloud = ease(frame, 30, 46)
-  const strike = ease(frame, 58, 74)
+  const cloud = ease(frame, Q.cloud, Q.cloud + 16)
+  const strike = ease(frame, Q.strike, Q.strike + 16)
   const files = [0, 1, 2, 3, 4]
   return (
     <div style={{ position: 'absolute', left: 1080, top: 250, width: 700, height: 640, opacity: laptop, transform: `translateY(${(1 - laptop) * 30}px)` }}>

@@ -1,21 +1,14 @@
 # Live Notebook
 
-**Markdown notes from your AI coding chats, kept on your own computer.** Save the useful parts of Claude Code, Cursor, VS Code Copilot and Codex conversations (a whole reply or a few lines), find them again in seconds, and tidy them up in a notebook that opens in your browser. Free, open source, local-first: no account, no cloud.
+**Markdown notes from your Claude Code conversations, kept on your own computer.** Save the useful parts of a reply (the whole thing or a few lines), find them again in seconds, and tidy them up in a notebook that opens in your browser. Free, open source, local-first: no account, no cloud.
 
-[![Live Notebook in 36 seconds: an AI agent's answer scrolls away, one click keeps it as a Markdown file, and search finds it again](docs/media/live-notebook-poster.jpg)](https://amberwjl.github.io/live-claude-notebook/)
+[![Live Notebook in 38 seconds: in Claude Code desktop, an answer scrolls away, the Save to notebook button under it keeps it as a Markdown file, and search finds it again](docs/media/live-notebook-poster.jpg)](https://amberwjl.github.io/live-claude-notebook/)
 
-**[▶ Watch the 36-second film](https://amberwjl.github.io/live-claude-notebook/)** ([MP4](docs/media/live-notebook.mp4))
+**[▶ Watch the 38-second film](https://amberwjl.github.io/live-claude-notebook/)** ([MP4](docs/media/live-notebook.mp4), with sound)
 
-![The Live Notebook web notebook: notebooks and notes in a sidebar, a saved reply with a code block open, and an inbox of a reply kept from Cursor](docs/media/web-notebook.png)
+![The Live Notebook web notebook: notebooks and notes in a sidebar, and a saved reply with a code block open](docs/media/web-notebook.png)
 
-| You use | How you save | Setup |
-| --- | --- | --- |
-| **Claude Code** (terminal, desktop app) | **Save to notebook** under every reply, `/save` for a selection | [Install the plugin](#install-in-claude-code) |
-| **VS Code, Cursor, Windsurf** | Copy a chat reply and run **Save Clipboard as Note**, or save a selection | [The editor extension](docs/AGENTS.md#the-editor-extension) |
-| **Any MCP agent** (Cursor, Copilot agent mode, Codex, Gemini CLI, Claude Code) | Ask: "save that to my notebook", "what did I save about retries?" | [The MCP server](docs/AGENTS.md#the-mcp-server) |
-| **Agents with hooks** (Cursor, Codex, Gemini CLI) | Every reply waits in an inbox for you to file, word for word | [The reply inbox](docs/AGENTS.md#the-reply-inbox-hooks) |
-
-Every tool writes plain `.md` files to the same folder, so a note saved in Cursor shows up in Claude Code and the web notebook too. Website and guides: [amberwjl.github.io/live-claude-notebook](https://amberwjl.github.io/live-claude-notebook/).
+Works in the Claude Code terminal and desktop app. Every note is a plain `.md` file you can open in any editor. Website and guides: [amberwjl.github.io/live-claude-notebook](https://amberwjl.github.io/live-claude-notebook/).
 
 ## Install in Claude Code
 
@@ -43,23 +36,7 @@ notebook works offline: its editor ships with it.
 3. Type `/notebook` any time to browse and search everything you have saved.
 
 That is the whole loop. Nothing is saved until you press Save, and nothing
-you save goes back into Claude's context unless you ask an agent to look it
-up through the [MCP server](docs/AGENTS.md#the-mcp-server).
-
-## Cursor, VS Code and other agents
-
-Install the `live-notebook` command (Node.js 18 or newer):
-
-```bash
-npm install -g github:AmberWJL/live-claude-notebook
-```
-
-Then `live-notebook open` opens the web notebook without Claude Code,
-`live-notebook save --clipboard` saves what you copied, and
-`live-notebook mcp` lets any MCP agent save and search notes. The editor
-extension adds **Save Clipboard as Note**, **Save Selection as Note** and
-**Search Notes** to VS Code, Cursor and Windsurf. Setup for each agent is in
-[docs/AGENTS.md](docs/AGENTS.md).
+you save is ever fed back into Claude's context.
 
 ## Ways to save
 
@@ -140,10 +117,8 @@ account. It sends a note's title and first 1,200 characters, and for a
 notebook's tags, the titles and first 300 characters of up to 20 notes and
 the names of the project folders they were saved in. By default it only
 does this for notes saved from a Claude Code conversation, whose text
-Claude has already seen. Notes you write yourself, and notes saved from
-Cursor, VS Code or another agent, are not sent. The command, the MCP server
-and the editor extension never send anything: they read and write local
-files only.
+Claude has already seen. Notes you write yourself on the web or in an
+editor are not sent.
 
 To change that, create `~/.claude/live-notebook/settings.json`:
 
@@ -152,7 +127,7 @@ To change that, create `~/.claude/live-notebook/settings.json`:
 ```
 
 `"off"` sends nothing, `"chat-only"` is the default, and `"all"` also sends
-notes you wrote yourself or saved from other agents.
+notes you wrote yourself.
 
 Live Notebook does not keep the messages around a saved reply, nor your
 project's full path. Notes saved by earlier versions still hold them in
@@ -168,8 +143,6 @@ Claude Code's plugin store, but no file contains them.
 ## For developers
 
 Build, test and data details are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
-Setting up other agents: [docs/AGENTS.md](docs/AGENTS.md). Releasing to npm,
-the VS Code Marketplace and Open VSX: [docs/PUBLISHING.md](docs/PUBLISHING.md).
+Getting it found (the site, Search Console, listings): [docs/PUBLISHING.md](docs/PUBLISHING.md).
 
-Live Notebook is MIT licensed and not affiliated with Anthropic, Cursor or
-Microsoft.
+Live Notebook is MIT licensed and not affiliated with Anthropic.

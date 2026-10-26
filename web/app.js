@@ -23,21 +23,7 @@
     newNotebook: $('new-notebook'),
     deleteNote: $('delete-note'),
     menu: $('context-menu'),
-    inbox: $('inbox'),
-    inboxList: $('inbox-list'),
-    inboxCount: $('inbox-count'),
-    reply: $('reply'),
-    replyFrom: $('reply-from'),
-    replyTitle: $('reply-title'),
-    replyNotebook: $('reply-notebook'),
-    replySave: $('reply-save'),
-    replyStatus: $('reply-status'),
-    replyDiscard: $('reply-discard'),
-    replyBody: $('reply-body'),
   }
-
-  /** How an inbox item names the agent whose hook kept it. */
-  const AGENTS = { 'claude-code': 'Claude Code', cursor: 'Cursor', codex: 'Codex', gemini: 'Gemini CLI' }
 
   const state = {
     notebooks: [],
@@ -58,10 +44,6 @@
     selection: new Set(),
     /** Where a shift-click's range starts: the row last clicked with a modifier. */
     anchor: null,
-    /** Replies an agent's hook kept (`live-notebook hook`), newest first. */
-    inbox: [],
-    /** The inbox item open in the main area, or null. */
-    reply: null,
   }
 
   /** The first meaningful line of the text, without markdown markers. */
@@ -357,11 +339,7 @@
   }
 
   async function refreshTree() {
-    const [{ notebooks }, { items }] = await Promise.all([api('GET', '/api/tree'), api('GET', '/api/inbox')])
-    state.inbox = items
-    // A reply filed or dropped elsewhere (another tab) closes here too.
-    if (state.reply && !items.some(item => item.name === state.reply.name)) closeReply()
-    renderInbox()
+    const { notebooks } = await api('GET', '/api/tree')
     state.notebooks = notebooks
     // A note saved or edited since the last search may match now.
     if (state.query.trim() !== '') void searchNotes(state.query.trim())
@@ -618,8 +596,6 @@
       state.dirty = false
       state.titleTouched = false
       els.empty.hidden = true
-      els.reply.hidden = true
-      state.reply = null
       els.note.hidden = false
       els.crumb.textContent = note.meta.folder ?? path.split('/')[0]
       els.title.value = note.meta.title ?? ''
@@ -631,89 +607,6 @@
       renderTree()
     } catch (error) {
       setStatus(error.message, 'error')
-    }
-  }
-
-  // ------------------------------------------------------------- inbox --
-
-  function agentLabel(agent) {
-    return AGENTS[agent] ?? agent
-  }
-
-  function renderInbox() {
-    els.inbox.hidden = state.inbox.length === 0
-    els.inboxCount.textContent = String(state.inbox.length)
-    els.inboxList.replaceChildren()
-    for (const item of state.inbox) {
-      const row = document.createElement('button')
-      row.type = 'button'
-      row.className = 'note-row' + (state.reply && state.reply.name === item.name ? ' selected' : '')
-      row.innerHTML = '<span class="row-head"><span class="row-title"></span></span><span class="row-preview"></span>'
-      row.querySelector('.row-title').textContent = titleOf(item.text) || 'Untitled reply'
-      const when = formatDate(item.capturedAt)
-      row.querySelector('.row-preview').textContent = [agentLabel(item.agent), item.project, when].filter(Boolean).join(' · ')
-      row.addEventListener('click', () => void openReply(item.name))
-      els.inboxList.append(row)
-    }
-  }
-
-  /** A kept reply in the main area, read-only, with the notebook to file it in. */
-  async function openReply(name) {
-    const item = state.inbox.find(one => one.name === name)
-    if (!item) return
-    if (state.dirty) await save()
-    state.open = null
-    state.reply = item
-    els.note.hidden = true
-    els.empty.hidden = true
-    els.reply.hidden = false
-    els.replyFrom.textContent = [agentLabel(item.agent), item.project, formatDate(item.capturedAt)].filter(Boolean).join(' · ')
-    els.replyTitle.textContent = titleOf(item.text) || 'Untitled reply'
-    els.replyStatus.textContent = ''
-    const names = state.notebooks.map(notebook => notebook.name)
-    if (names.length === 0) names.push('General')
-    els.replyNotebook.replaceChildren(
-      ...names.map(nameOf => {
-        const option = document.createElement('option')
-        option.value = nameOf
-        option.textContent = nameOf
-        return option
-      }),
-    )
-    els.replyBody.textContent = item.text
-    if (window.Vditor) window.Vditor.preview(els.replyBody, item.text, { cdn: VDITOR_CDN, lang: 'en_US', math: { engine: 'KaTeX' }, hljs: { lineNumber: false } })
-    location.hash = ''
-    renderInbox()
-    renderTree()
-  }
-
-  function closeReply() {
-    state.reply = null
-    els.reply.hidden = true
-    if (!state.open) els.empty.hidden = false
-  }
-
-  async function saveReply() {
-    if (!state.reply) return
-    try {
-      const note = await api('POST', '/api/inbox', { name: state.reply.name, folder: els.replyNotebook.value })
-      closeReply()
-      state.collapsed.delete(note.meta.folder)
-      await refreshTree()
-      await openNote(note.path)
-    } catch (error) {
-      els.replyStatus.textContent = error.message
-    }
-  }
-
-  async function discardReply() {
-    if (!state.reply) return
-    try {
-      await api('DELETE', `/api/inbox?name=${encodeURIComponent(state.reply.name)}`)
-      closeReply()
-      await refreshTree()
-    } catch (error) {
-      els.replyStatus.textContent = error.message
     }
   }
 
@@ -894,8 +787,6 @@
   // --------------------------------------------------------------- wire --
 
   els.newNote.addEventListener('click', () => void newNote())
-  els.replySave.addEventListener('click', () => void saveReply())
-  els.replyDiscard.addEventListener('click', () => void discardReply())
   els.newNotebook.addEventListener('click', () => showNotebookForm(els.newNotebookForm.hidden))
   els.newNotebookForm.addEventListener('submit', event => {
     event.preventDefault()

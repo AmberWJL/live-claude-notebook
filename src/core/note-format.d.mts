@@ -27,8 +27,6 @@ export type NoteFileMeta = {
   captured?: string
   /** Who wrote the captured text: `user`, `assistant` or `tool`. */
   role?: string
-  /** The tool that saved it, when not Claude Code's own capture: `cursor`, `codex`, `vscode`, `mcp`, `cli`, ... */
-  agent?: string
   session?: string
   /** The name (not the path) of the project directory the note was captured in. */
   project?: string

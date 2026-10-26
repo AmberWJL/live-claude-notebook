@@ -1,16 +1,18 @@
 import React from 'react'
 import { useCurrentFrame } from 'remotion'
 
+import { FRAMES, SOURCES as Q, sourceShots } from '../cues.mjs'
 import { Accent, Caption, Scene, ease, useSpring } from '../kit'
 import { C, MONO } from '../theme'
 
-export const SOURCES_FRAMES = 180
+export const SOURCES_FRAMES = FRAMES.sources
 
+/** Claude Code sessions, and how each saved its notes. */
 const SOURCES = [
-  { name: 'Claude Code', how: 'Save to notebook' },
-  { name: 'Cursor', how: 'Save Clipboard as Note' },
-  { name: 'VS Code', how: 'Save Selection as Note' },
-  { name: 'Any MCP agent', how: 'save_note' },
+  { name: 'Checkout timeouts', how: 'Save to notebook' },
+  { name: 'Flaky date test', how: '/save a selection' },
+  { name: 'Card grid layout', how: '/save any text' },
+  { name: 'Release notes', how: 'Save to notebook' },
 ]
 const CHIP = { left: 140, width: 440, height: 104, top: 340, step: 128 }
 const FOLDER = { left: 1160, top: 330, width: 620, height: 520 }
@@ -34,8 +36,8 @@ function along(i: number, t: number): { x: number; y: number } {
 }
 
 /** Notes in flight: each source sends one every 22 frames from its start, 26 frames on the way. */
-const FLIGHT = 26
-const shots = SOURCES.flatMap((_, i) => [0, 1, 2, 3].map(n => ({ source: i, start: 40 + i * 7 + n * 22, notebook: (i + n) % 3 })))
+const FLIGHT = Q.flight
+const shots = sourceShots()
 
 export const Sources: React.FC = () => {
   const frame = useCurrentFrame()
@@ -45,9 +47,9 @@ export const Sources: React.FC = () => {
   return (
     <Scene duration={SOURCES_FRAMES}>
       <Caption delay={2} size={60}>
-        From every tool you code with.
+        Every Claude Code session.
         <br />
-        <Accent>Into one folder.</Accent>
+        <Accent>One notes folder.</Accent>
       </Caption>
 
       <svg width={1920} height={1080} style={{ position: 'absolute', inset: 0 }}>
@@ -86,7 +88,7 @@ export const Sources: React.FC = () => {
             }}
           >
             <div style={{ fontSize: 32, fontWeight: 700 }}>{source.name}</div>
-            <div style={{ marginTop: 4, fontSize: 21, color: C.muted, fontFamily: i === 3 ? MONO : undefined }}>{source.how}</div>
+            <div style={{ marginTop: 4, fontSize: 21, color: C.muted, fontFamily: source.how.startsWith('/') ? MONO : undefined }}>{source.how}</div>
           </div>
         )
       })}

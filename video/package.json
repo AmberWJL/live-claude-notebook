@@ -1,12 +1,13 @@
 {
   "name": "live-notebook-video",
   "private": true,
-  "description": "The Live Notebook film on the home page, made with Remotion. Renders to docs/media/live-notebook.mp4.",
+  "description": "The Live Notebook film on the home page, made with Remotion, with a soundtrack synthesized in scripts/soundtrack.mjs. Renders to docs/media/live-notebook.mp4.",
   "type": "module",
   "scripts": {
-    "studio": "remotion studio src/index.ts --public-dir=../docs/media",
-    "render": "remotion render src/index.ts LiveNotebook ../docs/media/live-notebook.mp4 --public-dir=../docs/media --codec=h264 --crf=22 --pixel-format=yuv420p",
-    "poster": "remotion still src/index.ts LiveNotebook ../docs/media/live-notebook-poster.jpg --public-dir=../docs/media --frame=1040 --image-format=jpeg --jpeg-quality=86"
+    "prepare-assets": "node scripts/soundtrack.mjs && node -e \"require('node:fs').cpSync('../docs/media/web-notebook.png', 'public/web-notebook.png')\"",
+    "studio": "npm run prepare-assets && remotion studio src/index.ts",
+    "render": "npm run prepare-assets && remotion render src/index.ts LiveNotebook ../docs/media/live-notebook.mp4 --codec=h264 --crf=22 --pixel-format=yuv420p --audio-codec=aac --audio-bitrate=160k",
+    "poster": "remotion still src/index.ts LiveNotebook ../docs/media/live-notebook-poster.jpg --frame=1095 --image-format=jpeg --jpeg-quality=86"
   },
   "dependencies": {
     "@remotion/cli": "4.0.534",

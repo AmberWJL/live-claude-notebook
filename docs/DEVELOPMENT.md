@@ -29,46 +29,30 @@ npx tsc -p .
 npm run test:node
 ```
 
-```bash
-cd extensions/vscode && npm test
-```
-
 `test:node` covers what runs without Claude Code: the note format
 (`src/core/note-format.mjs`) and the web server over HTTP, including the
-guards against other sites, and the `live-notebook` command with its MCP
-server and hook. CI (`.github/workflows/ci.yml`) runs it on macOS, Windows
-and Linux. The extension's `npm test` runs its commands inside a VS Code
-installed on the machine (`VSCODE_BIN` picks another, such as Cursor's
-binary), with a throwaway profile and notes folder.
-
-## Outside Claude Code
-
-- `bin/live-notebook.mjs`: the command (`open`, `save`, `search`, `mcp`,
-  `hook`, `path`, `serve`, `stop`), installed by `npm install -g
-  github:AmberWJL/live-claude-notebook`. `src/cli/` holds its MCP server
-  (`mcp.mjs`, JSON-RPC over stdio, no SDK), the hook reader (`hook.mjs`)
-  and the clipboard and browser openers (`platform.mjs`).
-- `src/core/note-store.mjs`: the notes folder on disk (list, search,
-  create, the inbox), shared by the server, the command and the extension.
-- `extensions/vscode/`: the editor extension. `scripts/bundle.mjs` copies
-  the core, the server and the page into its `runtime/`; it runs the server
-  with the editor's own Node (`ELECTRON_RUN_AS_NODE`). `npm run package`
-  builds the `.vsix`.
-- Notes saved outside Claude Code carry `agent` (which tool) and no
-  `session`, so the Mod's default AI setting never sends them to a model.
-- See [AGENTS.md](AGENTS.md) for each agent's setup.
+guards against other sites. CI (`.github/workflows/ci.yml`) runs it on
+macOS, Windows and Linux.
 
 ## The home page film
 
 `video/` is a [Remotion](https://www.remotion.dev) project (React, rendered
-to MP4) for the film on the home page. Its scenes are in `video/src/scenes/`;
-it reads `docs/media/web-notebook.png` and writes
-`docs/media/live-notebook.mp4` and its poster:
+to MP4) for the film on the home page: Claude Code desktop with the Save to
+notebook button and the Live Notebook pane, drawn in the app's layout with
+made-up sessions and messages. Its scenes are in `video/src/scenes/`, and
+`video/src/cues.mjs` says when everything happens.
+
+The soundtrack is synthesized by `video/scripts/soundtrack.mjs` from the same
+cues (no samples or licensed music): a pad and bass in D, a soft pulse in the
+middle, and sound effects on the clicks, the chime when a note is saved, the
+key ticks and the notes landing in the folder. Change a cue and both the
+picture and the sound move. The film plays it with `<Html5Audio>`, and the
+render mixes it in as AAC.
 
 ```bash
 cd video && npm install
-npm run studio   # preview and scrub in the browser
-npm run render   # docs/media/live-notebook.mp4
+npm run studio   # synthesize the soundtrack, then preview and scrub in the browser
+npm run render   # docs/media/live-notebook.mp4, with sound
 npm run poster   # docs/media/live-notebook-poster.jpg
 ```
 
