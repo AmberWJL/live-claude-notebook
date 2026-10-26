@@ -7,7 +7,7 @@
  * definition.
  */
 
-export type EntryType = 'insight' | 'learning' | 'idea' | 'decision' | 'reference' | 'other'
+export type EntryType = 'insight' | 'learning' | 'reference' | 'other'
 
 export type CaptureMode = 'whole_message' | 'excerpt'
 
@@ -20,14 +20,18 @@ export type ContextMessage = {
 }
 
 /**
- * What surrounded the captured message when it was saved: the messages just
- * before and after it (each cut to a bounded length) and the project the
- * session ran in. Recorded automatically; never edited.
+ * Where a capture was made. Captures record only the project's name; earlier
+ * versions also kept the messages just before and after (each cut to a
+ * bounded length) and the project's full directory, and those stay readable.
+ * Recorded automatically; never edited.
  */
 export type CaptureContext = {
   before: ContextMessage[]
   after: ContextMessage[]
+  /** The project directory's full path (earlier versions' captures). */
   cwd?: string
+  /** The project directory's name, not its path. */
+  project?: string
 }
 
 export type SourceReference = {
@@ -60,6 +64,8 @@ export type NotebookEntry = {
   updatedAt: number
   /** The entry's markdown file, relative to the notes root (`<Notebook>/<name>.md`). */
   file?: string
+  /** True when the note is pinned on the web notebook, where it stays at the top of its notebook. */
+  pinned?: boolean
 }
 
 /** The notebooks a person has made, and the one they last saved into. */
@@ -90,24 +96,34 @@ export type ServerInfo = {
   startedAt: number
 }
 
-/** The capture form's working copy before the person confirms. */
+/** A capture the person has not saved yet. */
 export type CaptureDraft = {
-  /** Changes with every new draft, so the editor knows to reset. */
+  /** Changes with every new draft. */
   id: string
   content: string
   folder: string
   source: SourceReference
+  /** A title the person typed before saving; empty or absent, the note is titled for them. */
+  title?: string
+  /** A type the person picked before saving; absent, a model gives the note one. */
+  type?: EntryType
 }
 
-/** An existing entry open in the editor. */
+/** A saved note being edited in the pane. */
 export type EditDraft = {
+  /** Changes with every new edit, so the editor knows to reset. */
   id: string
   entryId: string
   content: string
-  folder: string
+  /** The title as edited; saved only when it differs from the note's. */
+  title: string
+  /** The type as picked on the edit page; saved only when it differs from the note's. Absent in an edit kept before it was a field. */
+  type?: EntryType
+  /** The notebook as picked on the edit page; saved, and the file moved, only when it differs from the note's. */
+  folder?: string
 }
 
-/** One recent transcript message offered for whole-message capture. */
+/** One transcript message, as the save control under a reply hands it to a whole-message draft. */
 export type MessageCandidate = {
   index: number
   role: 'user' | 'assistant'
@@ -136,12 +152,12 @@ export type AppendedRow = {
 export type NotebookView =
   | { kind: 'home' }
   | { kind: 'notebook'; folder: string }
-  | { kind: 'pick' }
   | { kind: 'confirm' }
-  | { kind: 'edit'; entryId: string; isDeleteArmed?: boolean }
+  | { kind: 'note'; entryId: string; isDeleteArmed?: boolean }
+  | { kind: 'edit'; entryId: string }
 
-/** A short status line; `open` names an entry the line offers to open. */
-export type Notice = { tone: 'ok' | 'error'; text: string; open?: string; resume?: true; at?: number } | null
+/** A short status line; `open` names an entry the line offers to open, `copy` a text (a path) it offers to copy. */
+export type Notice = { tone: 'ok' | 'error'; text: string; open?: string; resume?: true; copy?: string; at?: number } | null
 
 declare module 'claude-code' {
   interface PluginState {
@@ -159,26 +175,35 @@ declare module 'claude-code' {
       known: Record<string, number>
       /** The notes directory's touch mark as last seen; a change means the web app wrote. */
       touch: number
-      candidates: MessageCandidate[]
       rows: AppendedRow[]
       query: string
+      /** Grows when the query is set from outside the desktop's search editor (cleared, or typed to /notebook), so the editor takes the new text. */
+      searchSeed: number
       /** '' for every type, else one EntryType. */
       typeFilter: string
       notice: Notice
       /** The name field under "+ New notebook" is showing. */
       namingNotebook: boolean
+      /** A saved note's `⋯` menu is open. */
+      menuOpen: boolean
+      /** A capture or edit page's breadcrumb title has been pressed: a field holds it until Enter. */
+      titleEditing: boolean
       /** True until the store has been read once this session. */
       isLoading: boolean
       /** True while a save is in flight. */
       isSaving: boolean
-      /** The editor page's `⋯` menu shows the original snapshot. */
-      showSnapshot: boolean
       /** Notebooks the person toggled away from their default open or closed state. */
       collapsed: string[]
-      /** The toolbar's latest formatting command for the editor; `id` grows so the editor applies each once. */
+      /** The toolbar's latest formatting command for the capture editor; `id` grows so the editor applies each once. */
       editorCommand: { id: number; kind: string } | null
-      /** The heading level under the editor's cursor (normal, h1, h2, h3), what the heading picker shows. */
+      /** The heading level under the capture editor's cursor (normal, h1, h2, h3); its toolbar button takes it off again. */
       editorHeading: string
+      /** The person hid the rendered preview under the capture editor; it stays hidden for later notes this session. */
+      previewHidden: boolean
+      /** Wheel rows routed to the capture editor so far, summed; the editor scrolls by what it has not applied. */
+      editorScroll: number
+      /** The capture editor's window as it last reported it: first row shown, rows in all, rows shown. */
+      editorView: { draftId: string; top: number; total: number; height: number } | null
     }
   }
 }

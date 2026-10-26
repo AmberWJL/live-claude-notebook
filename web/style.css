@@ -9,6 +9,7 @@
   --hover: #ebebe8;
   --selected: #e4e4e0;
   --radius: 10px;
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%237a7a74' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -22,6 +23,7 @@
     --muted: #9a9a93;
     --hover: #292927;
     --selected: #32322f;
+    --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%239a9a93' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
 }
 
@@ -127,6 +129,23 @@ input {
   border-color: var(--accent);
 }
 
+.new-notebook {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 0 12px 8px;
+}
+
+.new-notebook[hidden] {
+  display: none;
+}
+
+.new-notebook .search {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
 .tree {
   flex: 1;
   overflow: auto;
@@ -139,7 +158,8 @@ input {
 
 .notebook-head {
   display: flex;
-  align-items: center;
+  align-items: baseline;
+  justify-content: space-between;
   padding: 6px 8px 2px;
   font-size: 12px;
   text-transform: uppercase;
@@ -155,33 +175,78 @@ input {
 
 .notebook-head .count {
   font-variant-numeric: tabular-nums;
-  margin-left: auto;
 }
 
-.notebook-head .menu {
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 0 4px;
-  margin-left: 6px;
+.notebook-head .head-start {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.notebook-head .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The notebook's caret: `›` when closed, turned down when its notes show. */
+.notebook-head .head-caret {
+  display: inline-block;
+  width: 1em;
+  flex-shrink: 0;
+  text-align: center;
   font-size: 14px;
   line-height: 1;
+  transition: transform 120ms ease;
 }
 
-.notebook-head .menu:hover {
+.notebook-head.open .head-caret {
+  transform: translateY(1px) rotate(90deg);
+}
+
+/* The mark on a pinned notebook's head, after its name. */
+.notebook-head .head-pin {
+  flex: none;
+  display: inline-flex;
+  align-self: center;
+  margin-left: 6px;
+  color: var(--muted);
+}
+
+.notebook-head .head-end {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+/* Export shows while the pointer or the keyboard is on the notebook's head. */
+.notebook-head .head-action {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.notebook-head:hover .head-action,
+.notebook-head:focus-within .head-action {
+  opacity: 1;
+}
+
+.notebook-head .head-action:hover {
   color: var(--text);
+  text-decoration: underline;
 }
 
-.notebook-actions {
-  display: flex;
-  gap: 6px;
-  padding: 2px 8px 8px;
-}
-
-.button.small {
-  padding: 3px 8px;
-  font-size: 12px;
+@media (hover: none) {
+  .notebook-head .head-action {
+    opacity: 1;
+  }
 }
 
 .notebook-summary {
@@ -210,8 +275,29 @@ input {
   background: var(--selected);
 }
 
+/* A note picked with ⌘-click or shift-click, one of several the menu acts on. */
+.note-row.picked {
+  background: var(--selected);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.note-row .row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.note-row .row-mark {
+  flex: none;
+  width: 1em;
+  text-align: center;
+  color: var(--accent);
+}
+
 .note-row .row-title {
   display: block;
+  min-width: 0;
   font-weight: 550;
   white-space: nowrap;
   overflow: hidden;
@@ -225,6 +311,62 @@ input {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.note-row .row-pin {
+  flex: none;
+  display: inline-flex;
+  align-self: center;
+  color: var(--muted);
+}
+
+/* A row being dragged to another notebook, and the notebook it is over. */
+.note-row.dragging {
+  opacity: 0.45;
+}
+
+.notebook.drop-target {
+  border-radius: 8px;
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+/* The right-click menu on a note row or a notebook's head: Pin, Archive, Delete. */
+.menu {
+  position: fixed;
+  z-index: 20;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+
+.menu[hidden] {
+  display: none;
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.menu-item:hover,
+.menu-item:focus {
+  background: var(--hover);
+  outline: none;
+}
+
+.menu-item.danger {
+  color: #c0392b;
 }
 
 .notebook-tags {
@@ -316,37 +458,51 @@ input {
   flex: 1;
 }
 
-/* Toast UI Editor: a document, not a boxed form. */
-#editor .toastui-editor-defaultUI {
-  border: 0;
+/* The type picker draws its own chevron, so there is room between it and the outline. */
+.type-picker {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  color: var(--accent);
+  background: var(--select-arrow) no-repeat right 9px center / 10px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 26px 2px 8px;
+  cursor: pointer;
 }
 
-#editor .toastui-editor-defaultUI-toolbar {
+.type-picker:hover,
+.type-picker:focus {
+  border-color: var(--muted);
+  outline: none;
+}
+
+/* Vditor: make it read like a document, not a toolbar-heavy editor. */
+#editor.vditor {
+  border: 0;
+  background: transparent;
+}
+
+#editor .vditor-toolbar {
   background: transparent;
   border-bottom: 1px solid var(--line);
-  padding-left: 0;
+  padding-left: 0 !important;
 }
 
-#editor .toastui-editor-toolbar-group {
-  background: transparent;
-}
-
-#editor .toastui-editor-main .ProseMirror,
-#editor .toastui-editor-contents {
+#editor .vditor-reset {
   font-family: var(--sans);
   font-size: 16px;
   line-height: 1.65;
-  color: var(--text);
+  padding: 10px 0 !important;
 }
 
-#editor .toastui-editor-contents code,
-#editor .toastui-editor-contents pre {
-  font-family: var(--mono);
-}
-
-#editor .toastui-editor-mode-switch {
+#editor .vditor-ir pre.vditor-reset {
   background: transparent;
-  border-top: 0;
+}
+
+#editor .vditor-reset code,
+#editor .vditor-reset pre {
+  font-family: var(--mono);
 }
 
 @media (max-width: 760px) {

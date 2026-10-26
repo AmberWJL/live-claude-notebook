@@ -19,11 +19,12 @@ export const MAX_FOLDER_CHARS = 40
 export const ENTRY_TYPES: readonly EntryType[] = [
   'insight',
   'learning',
-  'idea',
-  'decision',
   'reference',
   'other',
 ]
+
+/** Types notes used to have; a stored entry with one reads as `other`. */
+const RETIRED_TYPES: readonly string[] = ['idea', 'decision']
 
 const CAPTURE_MODES: readonly CaptureMode[] = ['whole_message', 'excerpt']
 const SOURCE_ROLES: readonly SourceRole[] = ['user', 'assistant', 'tool', 'unknown']
@@ -40,6 +41,7 @@ export type CreateNotebookEntryInput = {
   source: SourceReference
   file?: string
   createdAt?: number
+  pinned?: boolean
   /** True for an entry imported from a file: it does not become the last-used folder. */
   keepLastFolder?: true
 }
@@ -51,6 +53,7 @@ export type UpdateNotebookEntryInput = {
   type?: EntryType
   tags?: string[]
   file?: string
+  pinned?: boolean
 }
 
 export type ListNotebookEntriesOptions = {
@@ -106,8 +109,10 @@ function validateContext(value: unknown): Validation<CaptureContext> {
   const after = validateContextMessages(value.after, 'after')
   if (!after.ok) return after
   if (value.cwd !== undefined && typeof value.cwd !== 'string') return { ok: false, reason: 'context.cwd is not a string' }
+  if (value.project !== undefined && typeof value.project !== 'string') return { ok: false, reason: 'context.project is not a string' }
   const context: CaptureContext = { before: before.value, after: after.value }
   if (typeof value.cwd === 'string') context.cwd = value.cwd
+  if (typeof value.project === 'string') context.project = value.project
   return { ok: true, value: context }
 }
 
@@ -165,7 +170,8 @@ export function validateEntry(value: unknown): Validation<NotebookEntry> {
   if (typeof value.content !== 'string') return { ok: false, reason: 'content is not a string' }
   if (value.folder !== undefined && typeof value.folder !== 'string') return { ok: false, reason: 'folder is not a string' }
   if (value.file !== undefined && typeof value.file !== 'string') return { ok: false, reason: 'file is not a string' }
-  if (!isEntryType(value.type)) return { ok: false, reason: 'type is not an entry type' }
+  const type = typeof value.type === 'string' && RETIRED_TYPES.includes(value.type) ? 'other' : value.type
+  if (!isEntryType(type)) return { ok: false, reason: 'type is not an entry type' }
   if (!isStringArray(value.tags)) return { ok: false, reason: 'tags is not a string array' }
   if (!(STATUSES as readonly unknown[]).includes(value.status)) return { ok: false, reason: 'status is not a status' }
   if (!isFiniteNumber(value.createdAt)) return { ok: false, reason: 'createdAt is not a number' }
@@ -184,7 +190,7 @@ export function validateEntry(value: unknown): Validation<NotebookEntry> {
     title: value.title,
     content: value.content,
     folder: folder ?? DEFAULT_FOLDER,
-    type: value.type,
+    type,
     tags: value.tags,
     sources,
     status: value.status as EntryStatus,
@@ -192,6 +198,7 @@ export function validateEntry(value: unknown): Validation<NotebookEntry> {
     updatedAt: value.updatedAt,
   }
   if (typeof value.file === 'string' && value.file !== '') entry.file = value.file
+  if (value.pinned === true) entry.pinned = true
   return { ok: true, value: entry }
 }
 

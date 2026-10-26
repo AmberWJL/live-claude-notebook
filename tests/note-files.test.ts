@@ -38,11 +38,12 @@ describe('note files', () => {
       created: '2023-11-14T22:13:20.000Z',
       updated: '2023-11-14T22:15:00.000Z',
       captured: 'whole_message',
+      role: 'assistant',
       session: 's-1',
     })
     expect(parsed.content).toBe(one.content)
     expect(parseNote(serializeNote({ ...one, status: 'archived' })).meta.archived).toBe(true)
-    expect(parseNote(serializeNote({ ...one, type: 'decision' })).meta.type).toBe('decision')
+    expect(parseNote(serializeNote({ ...one, type: 'reference' })).meta.type).toBe('reference')
     expect(serializeNote(one)).not.toContain('type:')
   })
 
@@ -103,12 +104,12 @@ describe('note files', () => {
     const one = entry({ id: 't', file: 'General/t.md', content: 'x' })
     const actions = planImport({
       files: [{ path: 'General/t.md', folder: 'General', mtimeMs: 2 }],
-      texts: { 'General/t.md': '---\nid: t\ntype: decision\n---\n\nx\n' },
+      texts: { 'General/t.md': '---\nid: t\ntype: reference\n---\n\nx\n' },
       entries: [one],
       folders: ['General'],
       dirs: ['General'],
     })
-    expect(actions).toEqual([{ kind: 'update', entryId: 't', type: 'decision' }])
+    expect(actions).toEqual([{ kind: 'update', entryId: 't', type: 'reference' }])
   })
 
   test('planImport forgets a notebook whose directory is gone, never the default one', async () => {
@@ -136,6 +137,27 @@ describe('note files', () => {
       dirs: ['General', 'Ops'],
     })
     expect(actions).toEqual([{ kind: 'update', entryId: 'm-1', file: 'Ops/m.md', folder: 'Ops' }])
+  })
+
+  test('a pin round-trips through the file, and planImport records one set or cleared on the web', async () => {
+    const pinned = entry({ id: 'p-1', file: 'General/p.md', content: 'x', pinned: true })
+    expect(serializeNote(pinned).includes('\npinned: true\n---\n')).toBe(true)
+    expect(parseNote(serializeNote(pinned)).meta.pinned).toBe(true)
+    const plain = entry({ id: 'p-2', file: 'General/q.md', content: 'y' })
+    const actions = planImport({
+      files: [
+        { path: 'General/p.md', folder: 'General', mtimeMs: 1 },
+        { path: 'General/q.md', folder: 'General', mtimeMs: 1 },
+      ],
+      texts: { 'General/p.md': '---\nid: p-1\n---\n\nx\n', 'General/q.md': '---\nid: p-2\npinned: true\n---\n\ny\n' },
+      entries: [pinned, plain],
+      folders: ['General'],
+      dirs: ['General'],
+    })
+    expect(actions).toEqual([
+      { kind: 'update', entryId: 'p-1', pinned: false },
+      { kind: 'update', entryId: 'p-2', pinned: true },
+    ])
   })
 
   test('planImport treats "Untitled" as no title, so the first line names the note', async () => {

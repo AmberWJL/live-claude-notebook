@@ -4,22 +4,14 @@ import type {
   AppendedRow,
   CaptureContext,
   CaptureDraft,
-  ContextMessage,
   MessageCandidate,
   SourceReference,
 } from '../types'
 import { normalizeContent } from '../src/utils/normalize-content'
 
-/** How many recent messages `/save` offers for whole-message capture. */
-export const RECENT_LIMIT = 12
 /** How many appended rows are fingerprinted for message-id matching. */
 export const ROWS_LIMIT = 120
 const FINGERPRINT_CHARS = 160
-
-/** How much of the conversation around a capture is kept as context. */
-export const CONTEXT_BEFORE = 2
-export const CONTEXT_AFTER = 1
-export const CONTEXT_CHARS = 1_500
 
 type Message = Pick<SessionMessage, 'role' | 'text'>
 
@@ -44,24 +36,6 @@ export function matchRow(rows: readonly AppendedRow[], role: AppendedRow['role']
   return found.length === 1 ? found[0]?.uuid : undefined
 }
 
-/** The newest messages with text, newest first, with a row id where one matches. */
-export function candidatesFrom(
-  messages: readonly Message[],
-  rows: readonly AppendedRow[],
-  limit = RECENT_LIMIT,
-): MessageCandidate[] {
-  const candidates: MessageCandidate[] = []
-  for (let index = messages.length - 1; index >= 0 && candidates.length < limit; index -= 1) {
-    const message = messages[index]
-    if (message === undefined || message.text.trim() === '') continue
-    const candidate: MessageCandidate = { index, role: message.role, text: message.text }
-    const messageId = matchRow(rows, message.role, message.text)
-    if (messageId !== undefined) candidate.messageId = messageId
-    candidates.push(candidate)
-  }
-  return candidates
-}
-
 /**
  * Which transcript message a captured text came from: the last message whose
  * text is exactly it, else the last whose text contains it; -1 when none.
@@ -76,39 +50,6 @@ export function findMessageIndex(messages: readonly Message[], text: string): nu
     if (messages[index]?.text.includes(needle)) return index
   }
   return -1
-}
-
-function clip(text: string, max = CONTEXT_CHARS): string {
-  const flat = text.replace(/\r\n?/g, '\n').trim()
-  return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat
-}
-
-/**
- * The messages around index `at` (not the message itself), each cut to a
- * bounded length and empty ones skipped: what the capture was an answer to,
- * and what followed it.
- */
-export function contextAround(
-  messages: readonly Message[],
-  at: number,
-  limits: { before?: number; after?: number } = {},
-): Pick<CaptureContext, 'before' | 'after'> {
-  const wantBefore = limits.before ?? CONTEXT_BEFORE
-  const wantAfter = limits.after ?? CONTEXT_AFTER
-  const before: ContextMessage[] = []
-  const after: ContextMessage[] = []
-  if (at < 0 || at >= messages.length) return { before, after }
-  for (let index = at - 1; index >= 0 && before.length < wantBefore; index -= 1) {
-    const message = messages[index]
-    if (message === undefined || message.text.trim() === '') continue
-    before.unshift({ role: message.role, text: clip(message.text) })
-  }
-  for (let index = at + 1; index < messages.length && after.length < wantAfter; index += 1) {
-    const message = messages[index]
-    if (message === undefined || message.text.trim() === '') continue
-    after.push({ role: message.role, text: clip(message.text) })
-  }
-  return { before, after }
 }
 
 export type DraftResult = { ok: true; draft: CaptureDraft } | { ok: false; message: string }
