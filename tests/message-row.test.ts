@@ -4,6 +4,21 @@ import { PANE, PANE_PROPS, PLUGIN, START, fakeEngine, fakeFs, fakeStore } from '
 
 const BLOCK = { text: '## Cache rule\n\nKeep the TTL under one minute.', isFirstOfReply: true } as const
 
+/** The `hover` of the drawn element keyed `key`, which `find` leaves out. */
+function hoverOf(tree: unknown, key: string): unknown {
+  if (Array.isArray(tree)) {
+    for (const one of tree) {
+      const found = hoverOf(one, key)
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
+  if (tree === null || typeof tree !== 'object') return undefined
+  const node = tree as { props?: { key?: unknown }; hover?: unknown; children?: unknown }
+  if (node.props?.key === key) return node.hover
+  return hoverOf(node.children, key)
+}
+
 const MESSAGES = [
   { role: 'user' as const, text: 'What is the cache rule?', toolUses: [] },
   { role: 'assistant' as const, text: BLOCK.text, toolUses: [] },
@@ -21,6 +36,24 @@ describe('save control under assistant replies', () => {
       expect((await row.find({ key: 'save' }))?.text).toBe('Save to notebook')
       await row.unmount()
     }
+  })
+
+  test('on a desktop the save control is an outlined pill, faint at rest and the accent under the pointer; the terminal keeps its button', async ($, on) => {
+    fakeStore(on)
+    fakeFs(on)
+    fakeEngine(on, MESSAGES)
+    mock.clock(on)
+    const desktop = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'AssistantMessage', requestId: 'msg-1', props: BLOCK })
+    const pill = await desktop.find({ key: 'save-pill' })
+    expect(pill?.props).toMatchObject({ borderStyle: 'round', borderColor: 'claude', borderDimColor: true })
+    expect(hoverOf(await desktop.drawn(), 'save-pill')).toEqual({ borderColor: 'claude', borderDimColor: false, backgroundColor: '#d977571f' })
+    expect(hoverOf(await desktop.drawn(), 'save')).toEqual({ color: 'claude', dimColor: false })
+    expect((await desktop.find({ key: 'save' }))?.props).toMatchObject({ plain: true, dimColor: true })
+    await desktop.unmount()
+    const terminal = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AssistantMessage', requestId: 'msg-1', props: BLOCK })
+    expect(await terminal.find({ key: 'save-pill' })).toBeUndefined()
+    expect((await terminal.find({ key: 'save' }))?.props).toMatchObject({ variant: 'secondary' })
+    await terminal.unmount()
   })
 
   test('pressing save drafts the whole block with its message id and project, then Save stores it', async ($, on) => {
