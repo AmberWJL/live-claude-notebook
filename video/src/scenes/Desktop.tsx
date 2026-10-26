@@ -2,7 +2,7 @@ import React from 'react'
 import { Easing, interpolate, useCurrentFrame } from 'remotion'
 
 import { DESKTOP as Q, FRAMES } from '../cues.mjs'
-import { Accent, Caption, Scene, Typed, ease, useSpring } from '../kit'
+import { Accent, Caption, Cursor, Scene, Typed, ease, useSpring } from '../kit'
 import { C, MONO } from '../theme'
 
 export const DESKTOP_FRAMES = FRAMES.desktop
@@ -117,12 +117,6 @@ const FRONT_MATTER = [
   'role: assistant',
   '---',
 ]
-
-const Cursor: React.FC<{ x: number; y: number; pressed: boolean }> = ({ x, y, pressed }) => (
-  <svg width={36} height={44} viewBox="0 0 19 23" style={{ position: 'absolute', left: x, top: y, transform: `scale(${pressed ? 0.86 : 1})`, filter: 'drop-shadow(0 4px 8px rgba(0,0,0,.45))' }}>
-    <path d="M1 1 L1 18 L5.5 13.8 L8.6 21 L11.6 19.7 L8.6 12.6 L14.6 12.6 Z" fill="#fff" stroke="#111" strokeWidth="1.2" strokeLinejoin="round" />
-  </svg>
-)
 
 const SESSIONS = ['Checkout timeouts', 'Flaky date test', 'Dependency bumps', 'API client docs', 'Release notes', 'Card grid layout']
 

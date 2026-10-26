@@ -7,7 +7,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { DESKTOP, END, FILM_FRAMES, FIND, FPS, LOCAL, SOURCES, START, sourceShots } from '../src/cues.mjs'
+import { DESKTOP, END, EXPORT, FILM_FRAMES, FIND, FPS, LOCAL, SOURCES, START, YOURS, sourceShots } from '../src/cues.mjs'
 
 const SR = 44_100
 const SECONDS = FILM_FRAMES / FPS
@@ -196,6 +196,28 @@ whoosh(at(FIND.shot, START.find), 0.9, 300, 3000, 0.09)
 LOCAL.lines.forEach((frame, i) => tone({ start: at(frame, START.local), dur: 0.45, freq: 130 - i * 8, to: 72, amp: 0.13, attack: 0.003, release: 0.35, partials: [[1, 1], [2, 0.15]] }))
 whoosh(at(LOCAL.cloud, START.local), 0.6, 2000, 5000, 0.04, 0.5)
 whoosh(at(LOCAL.strike, START.local), 0.35, 1500, 9000, 0.1, 0.5)
+
+// Make it yours: a click into the note, key ticks as the student types their own line, a soft confirmation when
+// it saves; a click on New Note, then ticks for the title and the checklist.
+const typing = (text, startFrame, cps, pan) => {
+  for (let k = 0; k < text.length; k += 2) tick(at(startFrame, START.yours) + k / cps + random() * 0.01, text[k] === ' ' ? 0.035 : 0.055, pan + random() * 0.15)
+}
+click(at(YOURS.clickInto, START.yours), 0.2)
+typing(YOURS.added, YOURS.addAt, YOURS.cps.added, 0.1)
+tone({ start: at(YOURS.saved, START.yours), dur: 0.35, freq: NOTE('E5'), amp: 0.03, attack: 0.005, decay: 0.3 })
+click(at(YOURS.clickNew, START.yours), -0.5)
+tone({ start: at(YOURS.clickNew, START.yours) + 0.04, dur: 0.12, freq: 740, to: 880, amp: 0.04, attack: 0.004, release: 0.08 })
+typing(YOURS.title, YOURS.titleAt, YOURS.cps.title, 0.1)
+typing(YOURS.body, YOURS.bodyAt, YOURS.cps.body, 0.1)
+tone({ start: at(YOURS.done + 4, START.yours), dur: 0.35, freq: NOTE('F#5'), amp: 0.03, attack: 0.005, decay: 0.3 })
+
+// Export: a click on Export, the Save dialog drops in, a click on Save, and the file lands with a chime.
+click(at(EXPORT.click, START.export), -0.5)
+whoosh(at(EXPORT.dialog, START.export), 0.4, 800, 3000, 0.05)
+click(at(EXPORT.save, START.export), 0.2)
+whoosh(at(EXPORT.file, START.export), 0.6, 300, 2000, 0.08, -0.3)
+tone({ start: at(EXPORT.file + 6, START.export), dur: 0.4, freq: 90, to: 60, amp: 0.1, attack: 0.003, release: 0.3 })
+chime(at(EXPORT.file + 10, START.export), NOTE('D5'), 0.06)
 
 // The end card: a low chime under the name, ticks as the install lines arrive.
 chime(at(END.brand, START.end), NOTE('D5'), 0.07)

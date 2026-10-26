@@ -7,7 +7,7 @@
     "prepare-assets": "node scripts/soundtrack.mjs && node -e \"require('node:fs').cpSync('../docs/media/web-notebook.png', 'public/web-notebook.png')\"",
     "studio": "npm run prepare-assets && remotion studio src/index.ts",
     "render": "npm run prepare-assets && remotion render src/index.ts LiveNotebook ../docs/media/live-notebook.mp4 --codec=h264 --crf=22 --pixel-format=yuv420p --audio-codec=aac --audio-bitrate=160k",
-    "poster": "remotion still src/index.ts LiveNotebook ../docs/media/live-notebook-poster.jpg --frame=1095 --image-format=jpeg --jpeg-quality=86"
+    "poster": "remotion still src/index.ts LiveNotebook ../docs/media/live-notebook-poster.jpg --frame=1495 --image-format=jpeg --jpeg-quality=86"
   },
   "dependencies": {
     "@remotion/cli": "4.0.534",

@@ -7,20 +7,20 @@ import { C, MONO } from '../theme'
 
 export const SOURCES_FRAMES = FRAMES.sources
 
-/** Claude Code sessions, and how each saved its notes. */
+/** A student's Claude Code sessions, and how each saved what it taught. */
 const SOURCES = [
-  { name: 'Checkout timeouts', how: 'Save to notebook' },
-  { name: 'Flaky date test', how: '/save a selection' },
-  { name: 'Card grid layout', how: '/save any text' },
-  { name: 'Release notes', how: 'Save to notebook' },
+  { name: 'Explain recursion', how: 'Save to notebook' },
+  { name: 'Binary search, step by step', how: '/save a selection' },
+  { name: 'What is Big-O?', how: 'Save to notebook' },
+  { name: 'Hash maps vs. arrays', how: '/save any text' },
 ]
 const CHIP = { left: 140, width: 440, height: 104, top: 340, step: 128 }
 const FOLDER = { left: 1160, top: 330, width: 620, height: 520 }
 const INTO = { x: FOLDER.left, y: FOLDER.top + 250 }
 const NOTEBOOKS = [
-  { name: 'Ops', from: 2 },
-  { name: 'Payments', from: 4 },
-  { name: 'Frontend', from: 3 },
+  { name: 'Algorithms', from: 3 },
+  { name: 'Data structures', from: 2 },
+  { name: 'Exam prep', from: 1 },
 ]
 
 /** A point on the cubic from a chip's right edge into the folder. */
@@ -47,9 +47,9 @@ export const Sources: React.FC = () => {
   return (
     <Scene duration={SOURCES_FRAMES}>
       <Caption delay={2} size={60}>
-        Every Claude Code session.
+        Learning with Claude?
         <br />
-        <Accent>One notes folder.</Accent>
+        <Accent>Every explanation, kept.</Accent>
       </Caption>
 
       <svg width={1920} height={1080} style={{ position: 'absolute', inset: 0 }}>
@@ -87,7 +87,7 @@ export const Sources: React.FC = () => {
               transform: `translateX(${(1 - shown) * -40}px)`,
             }}
           >
-            <div style={{ fontSize: 32, fontWeight: 700 }}>{source.name}</div>
+            <div style={{ fontSize: 28, fontWeight: 700, whiteSpace: 'nowrap' }}>{source.name}</div>
             <div style={{ marginTop: 4, fontSize: 21, color: C.muted, fontFamily: source.how.startsWith('/') ? MONO : undefined }}>{source.how}</div>
           </div>
         )
@@ -124,7 +124,9 @@ export const Sources: React.FC = () => {
             </div>
           )
         })}
-        <div style={{ padding: '22px 34px', fontSize: 21, color: C.inkMuted }}>Plain Markdown files. Open them in any editor.</div>
+        <div style={{ padding: '22px 34px', fontSize: 21, color: C.inkMuted }}>
+          <span style={{ color: C.accentDeep }}>↗ Learning</span> notes, sorted by course. Plain Markdown files.
+        </div>
       </div>
     </Scene>
   )

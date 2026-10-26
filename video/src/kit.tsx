@@ -65,6 +65,18 @@ export const Mark: React.FC<{ height?: number }> = ({ height = 40 }) => (
   <div style={{ width: height * 0.42, height, borderRadius: height * 0.12, background: C.accent }} />
 )
 
+/** The pointer, in white with a dark edge; it shrinks a little while pressed. */
+export const Cursor: React.FC<{ x: number; y: number; pressed?: boolean }> = ({ x, y, pressed = false }) => (
+  <svg width={36} height={44} viewBox="0 0 19 23" style={{ position: 'absolute', left: x, top: y, transform: `scale(${pressed ? 0.86 : 1})`, filter: 'drop-shadow(0 4px 8px rgba(0,0,0,.45))' }}>
+    <path d="M1 1 L1 18 L5.5 13.8 L8.6 21 L11.6 19.7 L8.6 12.6 L14.6 12.6 Z" fill="#fff" stroke="#111" strokeWidth="1.2" strokeLinejoin="round" />
+  </svg>
+)
+
+/** How many characters of `text` show `frame - delay` frames after typing starts at `cps` a second. */
+export function typedCount(text: string, frame: number, delay: number, cps: number, fps = 30): number {
+  return Math.max(0, Math.min(text.length, Math.floor(((frame - delay) / fps) * cps)))
+}
+
 /** Text that types itself from `delay`, `cps` characters a second. */
 export const Typed: React.FC<{ text: string; delay: number; cps?: number; caret?: boolean }> = ({ text, delay, cps = 28, caret = false }) => {
   const frame = useCurrentFrame()

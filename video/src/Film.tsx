@@ -6,17 +6,20 @@ import { EndCard } from './scenes/EndCard'
 import { Find } from './scenes/Find'
 import { Local } from './scenes/Local'
 import { Sources } from './scenes/Sources'
+import { Export, Yours } from './scenes/Web'
 import { FILM_FRAMES as FRAMES, SCENES } from './cues.mjs'
 import { C } from './theme'
 
 /**
  * The home page's film: in Claude Code desktop, an answer worth keeping
  * scrolls away; the Save to notebook button under it keeps it as a Markdown
- * file; every tool feeds the same folder; search finds it; it all stays on
- * your computer; how to install. The soundtrack (scripts/soundtrack.mjs) is
+ * file; a student's explanations fill their course notebooks; search finds
+ * them; a note gets their own words, a new one is written from scratch, and
+ * the notebook exports as one Markdown file; it all stays on your computer;
+ * how to install. The soundtrack (scripts/soundtrack.mjs) is
  * timed to the same cues.
  */
-const COMPONENTS: Record<string, React.FC> = { desktop: Desktop, sources: Sources, find: Find, local: Local, end: EndCard }
+const COMPONENTS: Record<string, React.FC> = { desktop: Desktop, sources: Sources, find: Find, yours: Yours, export: Export, local: Local, end: EndCard }
 
 export const FILM_FRAMES = FRAMES
 

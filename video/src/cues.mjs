@@ -8,7 +8,9 @@ export const FPS = 30
 export const SCENES = [
   ['desktop', 495],
   ['sources', 180],
-  ['find', 180],
+  ['find', 150],
+  ['yours', 225],
+  ['export', 195],
   ['local', 150],
   ['end', 150],
 ]
@@ -43,7 +45,32 @@ export const DESKTOP = {
 /** Notes flying from each tool into the folder: source i sends its nth at `start + i * stagger + n * every`, landing `flight` later. */
 export const SOURCES = { start: 40, stagger: 7, perSource: 4, every: 22, flight: 26, tools: 4 }
 
-export const FIND = { typeAt: 20, cps: 9, word: 'retry', results: [44, 51, 58], shot: 96 }
+export const FIND = { typeAt: 16, cps: 9, word: 'retry', results: [38, 45, 52], shot: 82 }
+
+/** Frames to type `text` at `cps` characters a second. */
+export const typingFrames = (text, cps) => Math.ceil((text.length / cps) * FPS)
+
+/**
+ * Make it yours: a line of one's own added to a note saved from a reply,
+ * then a new note written from scratch. Each step starts when the last ends.
+ */
+export const YOURS = (() => {
+  const added = '> My note: it only works on a sorted array, so check that first.'
+  const title = 'Exam checklist'
+  const body = '- [ ] Trace binary search by hand\n- [ ] Write the base case first\n- [ ] Big-O of nested loops'
+  const cps = { added: 34, title: 28, body: 44 }
+  const clickInto = 24
+  const addAt = 30
+  const saved = addAt + typingFrames(added, cps.added) + 4
+  const clickNew = saved + 16
+  const titleAt = clickNew + 8
+  const bodyAt = titleAt + typingFrames(title, cps.title) + 8
+  const done = bodyAt + typingFrames(body, cps.body)
+  return { added, title, body, cps, clickInto, addAt, saved, clickNew, titleAt, bodyAt, done }
+})()
+
+/** Export: the notebook's Export button, the Save dialog, then the one file it writes. */
+export const EXPORT = { hover: 12, click: 30, dialog: 34, save: 78, file: 84, reveal: 96 }
 
 export const LOCAL = { lines: [6, 22, 40, 50], cloud: 30, strike: 58 }
 
