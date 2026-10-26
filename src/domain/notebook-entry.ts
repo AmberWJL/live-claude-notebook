@@ -123,7 +123,7 @@ function validateSource(value: unknown): Validation<SourceReference> {
   }
   if (typeof value.snapshot !== 'string') return { ok: false, reason: 'source.snapshot is not a string' }
   if (!isFiniteNumber(value.capturedAt)) return { ok: false, reason: 'source.capturedAt is not a number' }
-  for (const key of ['sessionId', 'messageId'] as const) {
+  for (const key of ['sessionId', 'messageId', 'agent'] as const) {
     if (value[key] !== undefined && typeof value[key] !== 'string') {
       return { ok: false, reason: `source.${key} is not a string` }
     }
@@ -143,6 +143,7 @@ function validateSource(value: unknown): Validation<SourceReference> {
   }
   if (typeof value.sessionId === 'string') source.sessionId = value.sessionId
   if (typeof value.messageId === 'string') source.messageId = value.messageId
+  if (typeof value.agent === 'string') source.agent = value.agent
   if (value.role !== undefined) source.role = value.role as SourceRole
   if (isFiniteNumber(value.startOffset)) source.startOffset = value.startOffset
   if (isFiniteNumber(value.endOffset)) source.endOffset = value.endOffset

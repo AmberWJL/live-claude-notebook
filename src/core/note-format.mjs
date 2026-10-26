@@ -23,10 +23,10 @@ export const AI_MODES = ['chat-only', 'all', 'off']
 /** When AI typing and tagging run: only on notes saved from a Claude Code conversation, unless set otherwise. */
 export const DEFAULT_AI_MODE = 'chat-only'
 
-const STRING_KEYS = ['id', 'title', 'folder', 'type', 'created', 'updated', 'captured', 'role', 'session', 'project']
+const STRING_KEYS = ['id', 'title', 'folder', 'type', 'created', 'updated', 'captured', 'role', 'agent', 'session', 'project']
 /** Written JSON-quoted: free text that may hold a colon, a quote or a leading space. */
 const QUOTED_KEYS = new Set(['title', 'folder', 'project'])
-const ORDER = ['id', 'title', 'folder', 'type', 'tags', 'created', 'updated', 'captured', 'role', 'session', 'project']
+const ORDER = ['id', 'title', 'folder', 'type', 'tags', 'created', 'updated', 'captured', 'role', 'agent', 'session', 'project']
 
 export function slugOf(text, max = 48) {
   const slug = String(text)

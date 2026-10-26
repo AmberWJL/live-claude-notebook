@@ -9,6 +9,8 @@ import { join } from 'node:path'
 import { after, before, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { addToInbox } from '../src/core/note-store.mjs'
+
 const SERVER = fileURLToPath(new URL('../server/notebook-server.mjs', import.meta.url))
 const WEB = fileURLToPath(new URL('../web', import.meta.url))
 
@@ -152,4 +154,18 @@ test('the root comes from LIVE_NOTEBOOK_HOME when no --root is given', async () 
     second.child.kill()
     rmSync(other, { recursive: true, force: true })
   }
+})
+
+test('the inbox: list the replies a hook kept, file one as a note word for word, drop another', async () => {
+  const kept = addToInbox(root, { agent: 'cursor', text: '# Kept reply\n\nexactly this', project: 'app' })
+  const dropped = addToInbox(root, { agent: 'codex', text: 'not this one' })
+  const { items } = await (await call('GET', '/api/inbox')).json()
+  assert.deepEqual(items.map(item => item.name).sort(), [kept, dropped].sort())
+  const note = await (await call('POST', '/api/inbox', { name: kept, folder: 'Ops' })).json()
+  assert.match(note.path, /^Ops\/kept-reply--[0-9a-f]{8}\.md$/)
+  assert.equal(readFileSync(join(root, 'notes', note.path), 'utf8').endsWith('\n\n# Kept reply\n\nexactly this\n'), true)
+  assert.equal((await call('POST', '/api/inbox', { name: kept, folder: 'Ops' })).status, 404)
+  assert.equal((await call('DELETE', `/api/inbox?name=${encodeURIComponent(dropped)}`)).status, 200)
+  assert.deepEqual((await (await call('GET', '/api/inbox')).json()).items, [])
+  assert.equal((await call('DELETE', '/api/inbox?name=..%2Fport')).status, 400)
 })

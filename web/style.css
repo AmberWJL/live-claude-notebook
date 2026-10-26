@@ -513,3 +513,36 @@ input {
     display: none;
   }
 }
+
+/* The inbox: replies an agent's hook kept, above the notebooks until each is saved or discarded. */
+.inbox {
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.inbox-head {
+  cursor: default;
+}
+
+.reply-title {
+  margin: 4px 0 8px;
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.reply-label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.reply-body {
+  padding: 8px 0 48px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.reply-body pre {
+  overflow-x: auto;
+}

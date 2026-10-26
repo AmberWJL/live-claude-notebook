@@ -24,3 +24,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: npm run test:node
+      # The editor extension: its runtime copies cleanly and its entry point parses. Its tests need VS Code
+      # itself (extensions/vscode/test/run.mjs) and run locally.
+      - run: node extensions/vscode/scripts/bundle.mjs
+      - run: node --check extensions/vscode/extension.cjs

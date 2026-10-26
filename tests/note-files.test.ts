@@ -112,6 +112,27 @@ describe('note files', () => {
     expect(actions).toEqual([{ kind: 'update', entryId: 't', type: 'reference' }])
   })
 
+  test('planImport keeps the agent, role and project of a reply another tool saved, with no session', async () => {
+    const text = '---\nid: r-1\ntitle: "Kept"\nfolder: "Ops"\ncaptured: whole_message\nrole: assistant\nagent: cursor\nproject: "app"\n---\n\nword for word\n'
+    const actions = planImport({ files: [{ path: 'Ops/kept--r-1.md', folder: 'Ops', mtimeMs: 2 }], texts: { 'Ops/kept--r-1.md': text }, entries: [], folders: ['General', 'Ops'], dirs: ['General', 'Ops'] })
+    expect(actions).toEqual([
+      {
+        kind: 'create',
+        path: 'Ops/kept--r-1.md',
+        folder: 'Ops',
+        content: 'word for word',
+        title: 'Kept',
+        id: 'r-1',
+        agent: 'cursor',
+        origin: { captureMode: 'whole_message', role: 'assistant', project: 'app' },
+      },
+    ])
+    // Written back by the Mod, the file keeps them.
+    const back = serializeNote(entry({ id: 'r-1', sources: [{ captureMode: 'whole_message', role: 'assistant', agent: 'cursor', snapshot: 'word for word', capturedAt: 1, context: { before: [], after: [], project: 'app' } }] }))
+    expect(back).toContain('\nrole: assistant\nagent: cursor\n')
+    expect(back).not.toContain('session:')
+  })
+
   test('planImport forgets a notebook whose directory is gone, never the default one', async () => {
     const actions = planImport({
       files: [],

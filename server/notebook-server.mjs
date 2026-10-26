@@ -22,21 +22,19 @@
  * The root is `--root`, else `LIVE_NOTEBOOK_HOME`, else `~/.claude/live-notebook`.
  */
 import { spawn } from 'node:child_process'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { homedir } from 'node:os'
 import { basename, extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
+  NOTEBOOK_META_FILE,
   NOTE_TYPES,
   NOTES_DIR,
   SOURCES_DIR,
   TRASH_DIR,
   isNoteId,
-  isNotePath,
-  noteMatches,
   parseNoteFile as parseNote,
   safeFolderName as safeFolder,
   serializeNoteFile as serializeNote,
@@ -44,15 +42,27 @@ import {
   sourcePathFor,
   titleOf,
 } from '../src/core/note-format.mjs'
+import {
+  NoteStoreError,
+  createNote,
+  listInbox,
+  listNotebooks as listNotebooksIn,
+  notePathOf,
+  readNotebookMeta,
+  removeInboxItem,
+  resolveRoot,
+  saveInboxItem,
+  searchNotes,
+  touch as touchRoot,
+} from '../src/core/note-store.mjs'
 import { EXPORT_FORMATS } from '../src/services/export-markdown.mjs'
 
 const args = parseArgs(process.argv.slice(2))
-const root = resolve(args.root ?? (process.env.LIVE_NOTEBOOK_HOME?.trim() || join(homedir(), '.claude', 'live-notebook')))
+const root = resolveRoot(args.root)
 const notesDir = join(root, NOTES_DIR)
 const webDir = resolve(args.web ?? join(fileURLToPath(new URL('.', import.meta.url)), '..', 'web'))
 const serverFile = join(root, 'server.json')
 const portFile = join(root, 'port')
-const touchFile = join(notesDir, '.touch')
 const DEFAULT_PORT = 47231
 const version = readVersion()
 
@@ -73,13 +83,17 @@ function parseArgs(argv) {
   return out
 }
 
+/** This copy's version: the plugin's manifest, else the package's (an install from npm or an editor extension). */
 function readVersion() {
-  try {
-    const manifest = new URL('../.claude-plugin/plugin.json', import.meta.url)
-    return String(JSON.parse(readFileSync(fileURLToPath(manifest), 'utf8')).version ?? '0.0.0')
-  } catch {
-    return '0.0.0'
+  for (const manifest of ['../.claude-plugin/plugin.json', '../package.json']) {
+    try {
+      const found = JSON.parse(readFileSync(fileURLToPath(new URL(manifest, import.meta.url)), 'utf8')).version
+      if (typeof found === 'string') return found
+    } catch {
+      /* the next one */
+    }
   }
+  return '0.0.0'
 }
 
 /** -1, 0 or 1 as version `a` is older than, the same as, or newer than `b`. */
@@ -136,68 +150,19 @@ async function isHealthy(info) {
 // ---------------------------------------------------------------------------
 
 function safeNotePath(rel) {
-  if (!isNotePath(rel)) return undefined
-  const abs = resolve(notesDir, rel)
-  if (!abs.startsWith(notesDir + sep)) return undefined
-  return abs
+  return notePathOf(root, rel)
 }
 
 function touch() {
-  mkdirSync(notesDir, { recursive: true })
-  writeFileSync(touchFile, String(Date.now()))
+  touchRoot(root)
 }
 
 function listNotebooks() {
-  mkdirSync(notesDir, { recursive: true })
-  const notebooks = []
-  for (const dir of readdirSync(notesDir, { withFileTypes: true })) {
-    if (!dir.isDirectory() || dir.name.startsWith('.')) continue
-    const folder = join(notesDir, dir.name)
-    const meta = readNotebookMeta(folder)
-    const tags = Array.isArray(meta.tags) ? meta.tags.filter(tag => typeof tag === 'string').slice(0, 3) : []
-    const notes = []
-    for (const file of readdirSync(folder, { withFileTypes: true })) {
-      if (!file.isFile() || extname(file.name) !== '.md') continue
-      const abs = join(folder, file.name)
-      const { meta, content } = parseNote(readFileSync(abs, 'utf8'))
-      if (meta.archived === true) continue
-      const stat = statSync(abs)
-      notes.push({
-        path: `${dir.name}/${file.name}`,
-        id: meta.id ?? null,
-        title: meta.title ?? titleOf(content) ?? file.name.replace(/\.md$/, ''),
-        created: meta.created ?? null,
-        updated: meta.updated ?? stat.mtime.toISOString(),
-        captured: meta.captured ?? null,
-        type: meta.type ?? null,
-        tags: meta.tags ?? [],
-        pinned: meta.pinned === true,
-        preview: content.replace(/\s+/g, ' ').trim().slice(0, 140),
-      })
-    }
-    // Pinned notes first, then the newest.
-    notes.sort((a, b) => Number(b.pinned) - Number(a.pinned) || String(b.updated).localeCompare(String(a.updated)))
-    // An archived notebook stays off the page until a note is saved into it again.
-    if (meta.archived === true && notes.length === 0) continue
-    notebooks.push({ name: dir.name, tags, pinned: meta.pinned === true, count: notes.length, notes })
-  }
-  // Pinned notebooks first, then by name.
-  notebooks.sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name))
-  return notebooks
-}
-
-/** A notebook's `_notebook.json`: its tags from Claude Code, and the web's pinned and archived flags; `{}` when none. */
-function readNotebookMeta(folder) {
-  try {
-    const meta = JSON.parse(readFileSync(join(folder, '_notebook.json'), 'utf8'))
-    return meta !== null && typeof meta === 'object' && !Array.isArray(meta) ? meta : {}
-  } catch {
-    return {}
-  }
+  return listNotebooksIn(root)
 }
 
 function writeNotebookMeta(folder, meta) {
-  writeFileSync(join(folder, '_notebook.json'), JSON.stringify(meta, null, 2))
+  writeFileSync(join(folder, NOTEBOOK_META_FILE), JSON.stringify(meta, null, 2))
 }
 
 function updateNote(abs, body) {
@@ -400,14 +365,18 @@ async function handle(req, res) {
     if (pathname === '/api/search' && req.method === 'GET') {
       // Every word of every active note, its title and its tags; the tree's previews hold only the opening.
       const query = url.searchParams.get('q') ?? ''
-      const paths = []
-      for (const notebook of listNotebooks()) {
-        for (const note of notebook.notes) {
-          const { meta, content } = parseNote(readFileSync(join(notesDir, note.path), 'utf8'))
-          if (noteMatches({ title: note.title, content, tags: meta.tags }, query)) paths.push(note.path)
-        }
-      }
-      return send(res, 200, { query, paths })
+      return send(res, 200, { query, paths: searchNotes(root, query, { limit: 100_000 }).map(found => found.path) })
+    }
+
+    // Replies an agent's hook kept (`live-notebook hook`), until filed as a note or dropped.
+    if (pathname === '/api/inbox' && req.method === 'GET') return send(res, 200, { items: listInbox(root) })
+    if (pathname === '/api/inbox' && req.method === 'POST') {
+      const body = await readBody(req)
+      return send(res, 201, saveInboxItem(root, body.name, { folder: body.folder, title: body.title }))
+    }
+    if (pathname === '/api/inbox' && req.method === 'DELETE') {
+      removeInboxItem(root, url.searchParams.get('name'))
+      return send(res, 200, { ok: true })
     }
 
     if (pathname === '/api/note') {
@@ -420,21 +389,10 @@ async function handle(req, res) {
       }
       if (req.method === 'POST') {
         const body = await readBody(req)
-        const folder = safeFolder(body.folder)
-        if (folder === undefined) return send(res, 400, { error: 'bad folder' })
+        if (safeFolder(body.folder) === undefined) return send(res, 400, { error: 'bad folder' })
         const content = typeof body.content === 'string' ? body.content : ''
-        const given = typeof body.title === 'string' && body.title.trim() !== '' && body.title.trim() !== 'Untitled'
-        const title = given ? body.title.trim() : (titleOf(content) ?? 'Untitled')
-        const id = randomUUID()
-        const now = new Date().toISOString()
-        const rel = `${folder}/${slugOf(title)}--${id.slice(0, 8)}.md`
-        const abs = safeNotePath(rel)
-        if (abs === undefined) return send(res, 400, { error: 'bad path' })
-        mkdirSync(join(notesDir, folder), { recursive: true })
-        const meta = { id, title, folder, created: now, updated: now, captured: 'excerpt' }
-        writeFileSync(abs, serializeNote(meta, content))
-        touch()
-        return send(res, 201, { path: rel, meta, content })
+        // A blank note the page opens to write in, or one made from pasted or dropped text.
+        return send(res, 201, createNote(root, { folder: body.folder, content, title: body.title, allowEmpty: true }))
       }
       const abs = safeNotePath(url.searchParams.get('path'))
       if (abs === undefined) return send(res, 400, { error: 'bad path' })
@@ -571,6 +529,9 @@ async function handle(req, res) {
     if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' })
     return serveStatic(res, pathname)
   } catch (error) {
+    if (error instanceof NoteStoreError) {
+      return send(res, error.code === 'not-found' ? 404 : 400, { error: error.message, code: error.code })
+    }
     return send(res, 500, { error: error instanceof Error ? error.message : String(error) })
   }
 }
