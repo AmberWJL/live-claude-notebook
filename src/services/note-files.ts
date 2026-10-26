@@ -61,6 +61,7 @@ export function serializeNote(entry: NotebookEntry): string {
   if (source !== undefined) {
     meta.captured = source.captureMode
     if (isSourceRole(source.role)) meta.role = source.role
+    if (source.agent !== undefined) meta.agent = source.agent
     if (source.sessionId !== undefined) meta.session = source.sessionId
   }
   const project = projectOf(entry)
@@ -130,6 +131,8 @@ export type ImportAction =
       type?: EntryType
       tags?: string[]
       pinned?: true
+      /** The tool that saved the file, when one says (`agent`). */
+      agent?: string
       /** Where the note came from, as its front matter says: a file rebuilt from a conversation's capture keeps it. */
       origin?: { captureMode: 'whole_message' | 'excerpt'; role?: Exclude<SourceRole, 'unknown'>; sessionId?: string; project?: string }
     }
@@ -145,13 +148,17 @@ export type ImportPlanInput = {
   dirs: readonly string[]
 }
 
-/** A file's record of the conversation it was saved from; undefined for a note written by hand. */
+/**
+ * A file's record of where it was captured: a Claude Code session, or a
+ * reply another agent's hook kept (its role and project, no session).
+ * Undefined for a note written by hand.
+ */
 function originOf(meta: NoteMeta): Extract<ImportAction, { kind: 'create' }>['origin'] {
-  if (meta.session === undefined) return undefined
+  if (meta.session === undefined && !isSourceRole(meta.role) && meta.project === undefined && meta.captured !== 'whole_message') return undefined
   const origin: NonNullable<Extract<ImportAction, { kind: 'create' }>['origin']> = {
     captureMode: meta.captured === 'whole_message' ? 'whole_message' : 'excerpt',
-    sessionId: meta.session,
   }
+  if (meta.session !== undefined) origin.sessionId = meta.session
   if (isSourceRole(meta.role)) origin.role = meta.role
   if (meta.project !== undefined) origin.project = meta.project
   return origin
@@ -204,6 +211,7 @@ export function planImport(input: ImportPlanInput): ImportAction[] {
       if (isEntryType(meta.type)) create.type = meta.type
       if (meta.tags !== undefined && meta.tags.length > 0) create.tags = meta.tags
       if (meta.pinned === true) create.pinned = true
+      if (meta.agent !== undefined) create.agent = meta.agent
       const origin = originOf(meta)
       if (origin !== undefined) create.origin = origin
       const created = meta.created === undefined ? NaN : Date.parse(meta.created)

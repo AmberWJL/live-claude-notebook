@@ -24,6 +24,12 @@
           <button id="new-notebook-cancel" class="button quiet" type="button" title="Cancel">×</button>
         </form>
         <input id="search" class="search" type="search" placeholder="Search notes…" autocomplete="off" />
+        <section id="inbox" class="inbox" aria-label="Inbox" hidden>
+          <div class="notebook-head inbox-head open" title="Replies your agents' hooks kept, to save as notes">
+            <span class="head-start"><span class="name">Inbox</span></span><span class="head-end"><span id="inbox-count" class="count"></span></span>
+          </div>
+          <div id="inbox-list"></div>
+        </section>
         <nav id="tree" class="tree" aria-label="Notebooks"></nav>
       </aside>
       <main id="main">
@@ -45,6 +51,21 @@
             </div>
           </header>
           <div id="editor"></div>
+        </article>
+        <article id="reply" class="note reply" hidden>
+          <header class="note-head">
+            <div class="crumbs"><span>Inbox</span> · <span id="reply-from"></span></div>
+            <h2 id="reply-title" class="title reply-title"></h2>
+            <div class="meta">
+              <label class="reply-label" for="reply-notebook">Save to</label>
+              <select id="reply-notebook" class="type-picker" title="Notebook"></select>
+              <button id="reply-save" class="button primary" type="button">Save as note</button>
+              <span id="reply-status" class="status"></span>
+              <span class="meta-spacer"></span>
+              <button id="reply-discard" class="button quiet" type="button">Discard</button>
+            </div>
+          </header>
+          <div id="reply-body" class="reply-body"></div>
         </article>
       </main>
     </div>

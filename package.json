@@ -2,13 +2,51 @@
   "name": "live-notebook",
   "version": "0.3.58",
   "private": true,
-  "description": "Live Notebook: a Claude Code Mod for capturing and searching useful conversation content.",
+  "description": "Live Notebook: save the useful parts of AI coding conversations (Claude Code, Cursor, VS Code, Codex, any MCP agent) as Markdown notes on your own computer, and search them.",
+  "keywords": [
+    "claude-code",
+    "cursor",
+    "vscode",
+    "mcp",
+    "mcp-server",
+    "ai",
+    "notes",
+    "markdown",
+    "knowledge-base",
+    "local-first",
+    "copilot",
+    "codex"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AmberWJL/live-claude-notebook.git"
+  },
+  "homepage": "https://github.com/AmberWJL/live-claude-notebook#readme",
   "type": "module",
+  "bin": {
+    "live-notebook": "bin/live-notebook.mjs"
+  },
+  "files": [
+    "bin/",
+    "server/",
+    "src/core/",
+    "src/cli/",
+    "src/services/export-markdown.mjs",
+    "src/services/export-markdown.d.mts",
+    "web/",
+    ".claude-plugin/plugin.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "typecheck": "tsc -p .",
     "validate": "claude plugin validate .",
     "test": "claude plugin test .",
-    "test:node": "node --test node-tests/note-format.test.mjs node-tests/server.test.mjs",
+    "test:node": "node --test node-tests/note-format.test.mjs node-tests/server.test.mjs node-tests/cli.test.mjs",
     "web": "node server/notebook-server.mjs --launch",
     "web:stop": "node server/notebook-server.mjs --stop"
   },
