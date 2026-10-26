@@ -715,7 +715,6 @@ async function importChanges($: Dollar, options: { force?: boolean } = {}): Prom
           context: { before: [], after: [], ...(origin?.project === undefined ? {} : { project: origin.project }) },
         }
         if (origin?.sessionId !== undefined) source.sessionId = origin.sessionId
-        if (action.agent !== undefined) source.agent = action.agent
         if (sidecar?.messageId !== undefined) source.messageId = sidecar.messageId
         const input: Parameters<NotebookService['create']>[0] = {
           content: action.content,

@@ -29,34 +29,10 @@ npx tsc -p .
 npm run test:node
 ```
 
-```bash
-cd extensions/vscode && npm test
-```
-
 `test:node` covers what runs without Claude Code: the note format
 (`src/core/note-format.mjs`) and the web server over HTTP, including the
-guards against other sites, and the `live-notebook` command with its MCP
-server and hook. CI (`.github/workflows/ci.yml`) runs it on macOS, Windows
-and Linux. The extension's `npm test` runs its commands inside a VS Code
-installed on the machine (`VSCODE_BIN` picks another, such as Cursor's
-binary), with a throwaway profile and notes folder.
-
-## Outside Claude Code
-
-- `bin/live-notebook.mjs`: the command (`open`, `save`, `search`, `mcp`,
-  `hook`, `path`, `serve`, `stop`), installed by `npm install -g
-  github:AmberWJL/live-claude-notebook`. `src/cli/` holds its MCP server
-  (`mcp.mjs`, JSON-RPC over stdio, no SDK), the hook reader (`hook.mjs`)
-  and the clipboard and browser openers (`platform.mjs`).
-- `src/core/note-store.mjs`: the notes folder on disk (list, search,
-  create, the inbox), shared by the server, the command and the extension.
-- `extensions/vscode/`: the editor extension. `scripts/bundle.mjs` copies
-  the core, the server and the page into its `runtime/`; it runs the server
-  with the editor's own Node (`ELECTRON_RUN_AS_NODE`). `npm run package`
-  builds the `.vsix`.
-- Notes saved outside Claude Code carry `agent` (which tool) and no
-  `session`, so the Mod's default AI setting never sends them to a model.
-- See [AGENTS.md](AGENTS.md) for each agent's setup.
+guards against other sites. CI (`.github/workflows/ci.yml`) runs it on
+macOS, Windows and Linux.
 
 `claude plugin test` needs Claude Code 2.1.293 or newer. To run a working
 copy without installing it, add the folder as a marketplace and install from

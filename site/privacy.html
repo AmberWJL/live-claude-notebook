@@ -34,36 +34,33 @@
 
           <h2>What is stored, and where</h2>
           <ul>
-            <li><code>~/.claude/live-notebook/notes/&lt;Notebook&gt;/*.md</code>: your notes, with a small front matter block (title, notebook, type, tags, dates, and which tool saved it).</li>
+            <li><code>~/.claude/live-notebook/notes/&lt;Notebook&gt;/*.md</code>: your notes, with a small front matter block (title, notebook, type, tags, dates, and where it was saved from).</li>
             <li><code>sources/</code>: for a note saved from a Claude Code reply, the text exactly as first saved.</li>
-            <li><code>inbox/</code>: replies an agent's hook kept, only if you set that up; the newest 50.</li>
             <li><code>trash/</code>: deleted notes, so you can put one back.</li>
           </ul>
           <p>Set <code>LIVE_NOTEBOOK_HOME</code> to keep them elsewhere. Live Notebook does not keep the messages around a saved reply, nor your project's full path.</p>
 
           <h2>What leaves your computer</h2>
           <p>Only this, and only in Claude Code: to pick a note's type, a short title and tags, the plugin asks a small Claude model through your own Claude Code account. It sends a note's title and first 1,200 characters; for a notebook's tags, the titles and first 300 characters of up to 20 notes and the names of their project folders.</p>
-          <p>By default it does this only for notes saved from a Claude Code conversation, which Claude has already seen. Notes you write yourself, or save from Cursor, VS Code or another agent, are not sent. To change it, create <code>~/.claude/live-notebook/settings.json</code>:</p>
+          <p>By default it does this only for notes saved from a Claude Code conversation, which Claude has already seen. Notes you write yourself on the web or in an editor are not sent. To change it, create <code>~/.claude/live-notebook/settings.json</code>:</p>
           <pre><code>{ "ai": "off" }</code></pre>
-          <p><code>"off"</code> sends nothing, <code>"chat-only"</code> is the default, <code>"all"</code> also sends notes from elsewhere.</p>
+          <p><code>"off"</code> sends nothing, <code>"chat-only"</code> is the default, <code>"all"</code> also sends notes you wrote yourself.</p>
 
           <h2>The web notebook</h2>
           <p>It runs on your computer at <code>127.0.0.1</code>. It refuses requests from other websites and from any address but its own, so a page you visit cannot read or plant notes. It ships its editor with it and loads nothing from the internet.</p>
 
           <h2>Local is not the whole story</h2>
-          <p>Your AI agent itself sends your conversation to its provider; that is how it works, and Live Notebook does not change it. What Live Notebook adds is a copy on your disk, not a copy on someone else's server.</p>
+          <p>Claude Code itself sends your conversation to Anthropic; that is how it works, and Live Notebook does not change it. What Live Notebook adds is a copy on your disk, not a copy on someone else's server.</p>
 
         </article>
       </main>
       <footer class="site">
         <div class="links">
           <a href="guides/save-claude-code-responses.html">Save Claude Code responses</a>
-          <a href="guides/cursor-chat-to-markdown.html">Save Cursor chats</a>
-          <a href="guides/mcp-notes-server.html">MCP notes server</a>
           <a href="privacy.html">Privacy</a>
           <a href="https://github.com/AmberWJL/live-claude-notebook">GitHub</a>
         </div>
-        Live Notebook is open source (MIT). Not affiliated with Anthropic, Cursor or Microsoft.
+        Live Notebook is open source (MIT). Not affiliated with Anthropic.
       </footer>
     </div>
   </body>

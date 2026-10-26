@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Live Notebook: Markdown notes from your AI coding chats</title>
-    <meta name="description" content="Save the useful parts of Claude Code, Cursor, VS Code Copilot and Codex conversations as Markdown notes on your own computer. Search them, edit them, reuse them. Free, open source, local-first, no account." />
+    <title>Live Notebook: Markdown notes from your Claude Code chats</title>
+    <meta name="description" content="Save the useful parts of your Claude Code conversations as Markdown notes on your own computer. One click under any reply; search, edit and export them later. Free, open source, local-first, no account." />
     <link rel="canonical" href="https://amberwjl.github.io/live-claude-notebook/" />
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="Live Notebook: Markdown notes from your AI coding chats" />
-    <meta property="og:description" content="Save replies from Claude Code, Cursor, VS Code and any MCP agent as local Markdown notes. Search and reuse them. No cloud." />
+    <meta property="og:title" content="Live Notebook: Markdown notes from your Claude Code chats" />
+    <meta property="og:description" content="Save Claude Code replies as local Markdown notes with one click. Search, edit and export them. No cloud." />
     <meta property="og:url" content="https://amberwjl.github.io/live-claude-notebook/" />
     <meta property="og:image" content="https://amberwjl.github.io/live-claude-notebook/media/social-preview.png" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -21,7 +21,7 @@
         "name": "Live Notebook",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "macOS, Windows, Linux",
-        "description": "Save the useful parts of AI coding conversations (Claude Code, Cursor, VS Code, Codex, any MCP agent) as Markdown notes on your own computer, and search them.",
+        "description": "Save the useful parts of Claude Code conversations as Markdown notes on your own computer, and search them.",
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
         "license": "https://opensource.org/licenses/MIT",
         "codeRepository": "https://github.com/AmberWJL/live-claude-notebook",
@@ -44,43 +44,43 @@
 
       <main>
         <div class="hero">
-          <p class="eyebrow">Notes for AI coding</p>
+          <p class="eyebrow">Notes for Claude Code</p>
           <h1>Keep the answers worth keeping.</h1>
           <p class="lede">
-            Live Notebook saves the useful parts of your AI coding chats as Markdown notes on your own computer. Search them, tidy them, and come back to them. Works with Claude Code, Cursor, VS Code and any agent that speaks MCP.
+            Live Notebook saves the useful parts of your Claude Code chats as Markdown notes on your own computer. One click under any reply; search them, tidy them, and come back to them later.
           </p>
           <div class="actions">
             <a class="button primary" href="#install">Install</a>
             <a class="button" href="https://github.com/AmberWJL/live-claude-notebook">View on GitHub</a>
           </div>
           <figure class="shot">
-            <img src="media/web-notebook.png" width="2560" height="1520" alt="The Live Notebook web notebook: notebooks and saved replies in a sidebar, one note open with a code block, and an inbox of a reply kept from Cursor." />
+            <img src="media/web-notebook.png" width="2560" height="1520" alt="The Live Notebook web notebook: notebooks and saved replies in a sidebar, one note open with a code block." />
           </figure>
           <p class="caption">The web notebook runs on your computer. Every note is a plain .md file.</p>
         </div>
 
         <section id="how">
-          <h2>Save from wherever you code</h2>
+          <h2>How it works</h2>
           <div class="grid">
             <div class="card">
-              <span class="tag">Claude Code</span>
+              <span class="tag">Save</span>
               <h3>One click under every reply</h3>
-              <p>A plugin adds a Save to notebook control under each reply, and <code>/save</code> for a selection. Notes show in a pane beside the chat.</p>
+              <p>A dim Save to notebook control sits under each Claude Code reply. Press it, pick a notebook, done: the reply is kept word for word.</p>
             </div>
             <div class="card">
-              <span class="tag">VS Code · Cursor</span>
-              <h3>Copy a reply, save it</h3>
-              <p>An editor extension saves a copied chat reply or your selection as a note, word for word, and searches your notes from the command palette.</p>
+              <span class="tag">Excerpt</span>
+              <h3>Just the lines you need</h3>
+              <p>Select part of a reply and type <code>/save</code>, or <code>/save</code> followed by any text. Edit it before it is saved.</p>
             </div>
             <div class="card">
-              <span class="tag">Any MCP agent</span>
-              <h3>Just ask</h3>
-              <p>"Save that to my notebook." "What did I save about retries?" A local MCP server gives Cursor, Copilot, Codex and Gemini CLI four note tools.</p>
+              <span class="tag">Find</span>
+              <h3>Search every word</h3>
+              <p><code>/notebook</code> opens a pane beside the chat with your notebooks and a search over everything you saved.</p>
             </div>
             <div class="card">
-              <span class="tag">Hooks</span>
-              <h3>Nothing slips by</h3>
-              <p>Optionally, an agent's hook keeps each reply in an inbox, so you can file the good ones later, exactly as written.</p>
+              <span class="tag">Edit</span>
+              <h3>A notebook in your browser</h3>
+              <p><code>/notebook web</code> opens the web notebook: edit as formatted Markdown, pin, move, archive and export notes.</p>
             </div>
           </div>
         </section>
@@ -90,35 +90,16 @@
           <ul class="checks">
             <li>Notes are Markdown files in a folder on your computer. Open them in any editor, back them up, put them in git.</li>
             <li>No account, no cloud, no analytics. The web notebook answers only its own page and loads nothing from the internet.</li>
-            <li>One folder for every tool: a note saved in Cursor shows up in Claude Code and the web notebook too.</li>
+            <li>Edit a note anywhere: in the pane, in the web notebook, or in any editor. Each picks up the others' changes.</li>
             <li>The one optional extra: in Claude Code, a small Claude model can pick a note's type and tags, only for notes saved there, and you can turn it off. <a href="privacy.html">What stays local</a>.</li>
           </ul>
         </section>
 
         <section id="install">
           <h2>Install</h2>
-          <div class="table-scroll">
-            <table>
-              <thead>
-                <tr><th>You use</th><th>Install</th></tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Claude Code</td>
-                  <td><code>/plugin install live-notebook --marketplace AmberWJL/live-claude-notebook</code></td>
-                </tr>
-                <tr>
-                  <td>VS Code, Cursor, Windsurf</td>
-                  <td>The Live Notebook extension (<a href="https://github.com/AmberWJL/live-claude-notebook/blob/main/docs/AGENTS.md#the-editor-extension">install steps</a>)</td>
-                </tr>
-                <tr>
-                  <td>Any MCP agent, or a terminal</td>
-                  <td><code>npm install -g github:AmberWJL/live-claude-notebook</code>, then <a href="guides/mcp-notes-server.html">add the MCP server</a></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p>Needs Node.js 18 or newer for the web notebook and the command. macOS, Windows and Linux.</p>
+          <p>In a Claude Code session, run:</p>
+          <pre><code>/plugin install live-notebook --marketplace AmberWJL/live-claude-notebook</code></pre>
+          <p>Needs Claude Code 2.1.293 or newer and Node.js 18 or newer for the web notebook. macOS, Windows and Linux.</p>
         </section>
 
         <section>
@@ -128,8 +109,8 @@
             <p>No. Notes are written to a folder on your computer and read from there. Nothing is sent to a Live Notebook server; there isn't one.</p>
           </details>
           <details>
-            <summary>Can an extension read Copilot's or Cursor's chat by itself?</summary>
-            <p>No editor lets one extension read another's chat. So you copy the reply and save it, or let an agent hook keep each reply in the inbox, or ask the agent to save it through MCP.</p>
+            <summary>Does it work in Cursor or VS Code?</summary>
+            <p>Today it works where Claude Code runs: the terminal and the desktop app. Support for other editors is being worked on separately.</p>
           </details>
           <details>
             <summary>What happens to my notes if I stop using it?</summary>
@@ -145,12 +126,10 @@
       <footer class="site">
         <div class="links">
           <a href="guides/save-claude-code-responses.html">Save Claude Code responses</a>
-          <a href="guides/cursor-chat-to-markdown.html">Save Cursor chats</a>
-          <a href="guides/mcp-notes-server.html">MCP notes server</a>
           <a href="privacy.html">Privacy</a>
           <a href="https://github.com/AmberWJL/live-claude-notebook">GitHub</a>
         </div>
-        Live Notebook is open source (MIT). Not affiliated with Anthropic, Cursor or Microsoft.
+        Live Notebook is open source (MIT). Not affiliated with Anthropic.
       </footer>
     </div>
   </body>
