@@ -221,16 +221,21 @@ input {
 }
 
 /* Export shows while the pointer or the keyboard is on the notebook's head. */
+/* Export: a small outlined pill at the head's right end, shown under the pointer; the accent under the pointer, pressed in on a click. */
 .notebook-head .head-action {
-  border: 0;
-  padding: 0;
-  background: transparent;
+  padding: 1px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
   font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.5;
+  color: var(--text);
   cursor: pointer;
   opacity: 0;
+  transition: opacity 0.12s, border-color 0.12s, color 0.12s, transform 0.08s;
 }
 
 .notebook-head:hover .head-action,
@@ -239,8 +244,17 @@ input {
 }
 
 .notebook-head .head-action:hover {
-  color: var(--text);
-  text-decoration: underline;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.notebook-head .head-action:active {
+  transform: scale(0.94);
+}
+
+.notebook-head .head-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 @media (hover: none) {
