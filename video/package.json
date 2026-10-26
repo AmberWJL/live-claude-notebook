@@ -1,0 +1,17 @@
+{
+  "name": "live-notebook-video",
+  "private": true,
+  "description": "The Live Notebook film on the home page, made with Remotion. Renders to docs/media/live-notebook.mp4.",
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts --public-dir=../docs/media",
+    "render": "remotion render src/index.ts LiveNotebook ../docs/media/live-notebook.mp4 --public-dir=../docs/media --codec=h264 --crf=22 --pixel-format=yuv420p",
+    "poster": "remotion still src/index.ts LiveNotebook ../docs/media/live-notebook-poster.jpg --public-dir=../docs/media --frame=1040 --image-format=jpeg --jpeg-quality=86"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.534",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.534"
+  }
+}

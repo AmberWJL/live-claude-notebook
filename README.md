@@ -2,6 +2,10 @@
 
 **Markdown notes from your AI coding chats, kept on your own computer.** Save the useful parts of Claude Code, Cursor, VS Code Copilot and Codex conversations (a whole reply or a few lines), find them again in seconds, and tidy them up in a notebook that opens in your browser. Free, open source, local-first: no account, no cloud.
 
+[![Live Notebook in 36 seconds: an AI agent's answer scrolls away, one click keeps it as a Markdown file, and search finds it again](docs/media/live-notebook-poster.jpg)](https://amberwjl.github.io/live-claude-notebook/)
+
+**[▶ Watch the 36-second film](https://amberwjl.github.io/live-claude-notebook/)** ([MP4](docs/media/live-notebook.mp4))
+
 ![The Live Notebook web notebook: notebooks and notes in a sidebar, a saved reply with a code block open, and an inbox of a reply kept from Cursor](docs/media/web-notebook.png)
 
 | You use | How you save | Setup |

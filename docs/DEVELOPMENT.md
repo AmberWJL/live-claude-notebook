@@ -58,6 +58,25 @@ binary), with a throwaway profile and notes folder.
   `session`, so the Mod's default AI setting never sends them to a model.
 - See [AGENTS.md](AGENTS.md) for each agent's setup.
 
+## The home page film
+
+`video/` is a [Remotion](https://www.remotion.dev) project (React, rendered
+to MP4) for the film on the home page. Its scenes are in `video/src/scenes/`;
+it reads `docs/media/web-notebook.png` and writes
+`docs/media/live-notebook.mp4` and its poster:
+
+```bash
+cd video && npm install
+npm run studio   # preview and scrub in the browser
+npm run render   # docs/media/live-notebook.mp4
+npm run poster   # docs/media/live-notebook-poster.jpg
+```
+
+Remotion downloads its own headless Chrome the first time; add
+`--browser-executable="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"`
+to use the installed one. Remotion is free for individuals and companies
+of up to three people; larger companies need its company license.
+
 `claude plugin test` needs Claude Code 2.1.293 or newer. To run a working
 copy without installing it, add the folder as a marketplace and install from
 it: `claude plugin marketplace add <folder>` then `claude plugin install

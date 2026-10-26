@@ -7,141 +7,126 @@
     <meta name="description" content="Save the useful parts of Claude Code, Cursor, VS Code Copilot and Codex conversations as Markdown notes on your own computer. Search them, edit them, reuse them. Free, open source, local-first, no account." />
     <link rel="canonical" href="https://amberwjl.github.io/live-claude-notebook/" />
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="#1c1c1a" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Live Notebook: Markdown notes from your AI coding chats" />
     <meta property="og:description" content="Save replies from Claude Code, Cursor, VS Code and any MCP agent as local Markdown notes. Search and reuse them. No cloud." />
     <meta property="og:url" content="https://amberwjl.github.io/live-claude-notebook/" />
     <meta property="og:image" content="https://amberwjl.github.io/live-claude-notebook/media/social-preview.png" />
+    <meta property="og:video" content="https://amberwjl.github.io/live-claude-notebook/media/live-notebook.mp4" />
+    <meta property="og:video:type" content="video/mp4" />
+    <meta property="og:video:width" content="1920" />
+    <meta property="og:video:height" content="1080" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="stylesheet" href="styles.css" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "SoftwareApplication",
-        "name": "Live Notebook",
-        "applicationCategory": "DeveloperApplication",
-        "operatingSystem": "macOS, Windows, Linux",
-        "description": "Save the useful parts of AI coding conversations (Claude Code, Cursor, VS Code, Codex, any MCP agent) as Markdown notes on your own computer, and search them.",
-        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-        "license": "https://opensource.org/licenses/MIT",
-        "codeRepository": "https://github.com/AmberWJL/live-claude-notebook",
-        "url": "https://amberwjl.github.io/live-claude-notebook/"
+        "@graph": [
+          {
+            "@type": "SoftwareApplication",
+            "name": "Live Notebook",
+            "applicationCategory": "DeveloperApplication",
+            "operatingSystem": "macOS, Windows, Linux",
+            "description": "Save the useful parts of AI coding conversations (Claude Code, Cursor, VS Code, Codex, any MCP agent) as Markdown notes on your own computer, and search them.",
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+            "license": "https://opensource.org/licenses/MIT",
+            "codeRepository": "https://github.com/AmberWJL/live-claude-notebook",
+            "url": "https://amberwjl.github.io/live-claude-notebook/"
+          },
+          {
+            "@type": "VideoObject",
+            "name": "Live Notebook in 36 seconds",
+            "description": "An answer from an AI coding agent scrolls away; one click keeps it as a Markdown file; every tool feeds one local folder; search finds it again.",
+            "thumbnailUrl": "https://amberwjl.github.io/live-claude-notebook/media/live-notebook-poster.jpg",
+            "contentUrl": "https://amberwjl.github.io/live-claude-notebook/media/live-notebook.mp4",
+            "uploadDate": "2026-10-26",
+            "duration": "PT36S"
+          }
+        ]
       }
     </script>
   </head>
-  <body>
+  <body class="home">
     <div class="wrap">
       <header class="site">
         <a class="brand" href="./"><span class="brand-mark" aria-hidden="true"></span>Live Notebook</a>
         <nav class="site" aria-label="Site">
-          <a href="#how">How it works</a>
           <a href="#install">Install</a>
           <a href="guides/">Guides</a>
           <a href="privacy.html">Privacy</a>
           <a href="https://github.com/AmberWJL/live-claude-notebook">GitHub</a>
         </nav>
       </header>
+    </div>
 
-      <main>
-        <div class="hero">
-          <p class="eyebrow">Notes for AI coding</p>
+    <main>
+      <section class="stage" aria-label="Live Notebook in 36 seconds">
+        <div class="screen">
+          <video
+            id="film"
+            src="media/live-notebook.mp4"
+            poster="media/live-notebook-poster.jpg"
+            width="1920"
+            height="1080"
+            autoplay
+            muted
+            loop
+            playsinline
+            preload="metadata"
+            aria-describedby="film-script"
+          ></video>
+          <div class="screen-bar">
+            <button id="film-toggle" class="film-button" type="button" aria-label="Pause the film">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path id="film-icon" d="M7 5h3v14H7zM14 5h3v14h-3z" fill="currentColor" /></svg>
+            </button>
+            <div class="film-progress" aria-hidden="true"><div id="film-progress"></div></div>
+            <button id="film-replay" class="film-button" type="button" aria-label="Play from the start">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z" fill="currentColor" /></svg>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div class="wrap">
+        <section class="pitch">
           <h1>Keep the answers worth keeping.</h1>
           <p class="lede">
-            Live Notebook saves the useful parts of your AI coding chats as Markdown notes on your own computer. Search them, tidy them, and come back to them. Works with Claude Code, Cursor, VS Code and any agent that speaks MCP.
+            Live Notebook saves the useful parts of your AI coding chats as Markdown notes on your own computer, and finds them again in a second. Claude Code, Cursor, VS Code and any agent that speaks MCP. No account, no cloud.
           </p>
-          <div class="actions">
-            <a class="button primary" href="#install">Install</a>
-            <a class="button" href="https://github.com/AmberWJL/live-claude-notebook">View on GitHub</a>
+        </section>
+
+        <section id="install" class="installs" aria-label="Install">
+          <div class="install">
+            <div class="install-where">Claude Code</div>
+            <code>/plugin install live-notebook --marketplace AmberWJL/live-claude-notebook</code>
+            <button class="copy" type="button" data-copy="/plugin install live-notebook --marketplace AmberWJL/live-claude-notebook">Copy</button>
           </div>
-          <figure class="shot">
-            <img src="media/web-notebook.png" width="2560" height="1520" alt="The Live Notebook web notebook: notebooks and saved replies in a sidebar, one note open with a code block, and an inbox of a reply kept from Cursor." />
-          </figure>
-          <p class="caption">The web notebook runs on your computer. Every note is a plain .md file.</p>
-        </div>
-
-        <section id="how">
-          <h2>Save from wherever you code</h2>
-          <div class="grid">
-            <div class="card">
-              <span class="tag">Claude Code</span>
-              <h3>One click under every reply</h3>
-              <p>A plugin adds a Save to notebook control under each reply, and <code>/save</code> for a selection. Notes show in a pane beside the chat.</p>
-            </div>
-            <div class="card">
-              <span class="tag">VS Code · Cursor</span>
-              <h3>Copy a reply, save it</h3>
-              <p>An editor extension saves a copied chat reply or your selection as a note, word for word, and searches your notes from the command palette.</p>
-            </div>
-            <div class="card">
-              <span class="tag">Any MCP agent</span>
-              <h3>Just ask</h3>
-              <p>"Save that to my notebook." "What did I save about retries?" A local MCP server gives Cursor, Copilot, Codex and Gemini CLI four note tools.</p>
-            </div>
-            <div class="card">
-              <span class="tag">Hooks</span>
-              <h3>Nothing slips by</h3>
-              <p>Optionally, an agent's hook keeps each reply in an inbox, so you can file the good ones later, exactly as written.</p>
-            </div>
+          <div class="install">
+            <div class="install-where">Cursor · VS Code · MCP</div>
+            <code>npm install -g github:AmberWJL/live-claude-notebook</code>
+            <button class="copy" type="button" data-copy="npm install -g github:AmberWJL/live-claude-notebook">Copy</button>
           </div>
+          <p class="install-more">
+            Then: <a href="guides/save-claude-code-responses.html">in Claude Code</a> · <a href="guides/cursor-chat-to-markdown.html">in Cursor and VS Code</a> ·
+            <a href="guides/mcp-notes-server.html">with any MCP agent</a> · <a href="privacy.html">what stays local</a>
+          </p>
         </section>
 
-        <section>
-          <h2>Your notes stay yours</h2>
-          <ul class="checks">
-            <li>Notes are Markdown files in a folder on your computer. Open them in any editor, back them up, put them in git.</li>
-            <li>No account, no cloud, no analytics. The web notebook answers only its own page and loads nothing from the internet.</li>
-            <li>One folder for every tool: a note saved in Cursor shows up in Claude Code and the web notebook too.</li>
-            <li>The one optional extra: in Claude Code, a small Claude model can pick a note's type and tags, only for notes saved there, and you can turn it off. <a href="privacy.html">What stays local</a>.</li>
-          </ul>
-        </section>
+        <details class="script">
+          <summary>What the film shows</summary>
+          <ol id="film-script">
+            <li>An AI coding agent explains how to retry payment timeouts with backoff, and then the conversation scrolls on and the answer is gone.</li>
+            <li>Rewound, the answer gets a Save to notebook button. One click turns it into a plain Markdown file with a little front matter: title, notebook, tags, who wrote it.</li>
+            <li>Claude Code, Cursor, VS Code and any MCP agent all save into the same folder, <code>~/.claude/live-notebook/notes</code>, sorted into notebooks.</li>
+            <li>Searching for "retry" finds the note at once and opens it in the web notebook.</li>
+            <li>No account, no cloud: just Markdown files on your computer, to open in any editor, back up or keep in git.</li>
+          </ol>
+        </details>
+      </div>
+    </main>
 
-        <section id="install">
-          <h2>Install</h2>
-          <div class="table-scroll">
-            <table>
-              <thead>
-                <tr><th>You use</th><th>Install</th></tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Claude Code</td>
-                  <td><code>/plugin install live-notebook --marketplace AmberWJL/live-claude-notebook</code></td>
-                </tr>
-                <tr>
-                  <td>VS Code, Cursor, Windsurf</td>
-                  <td>The Live Notebook extension (<a href="https://github.com/AmberWJL/live-claude-notebook/blob/main/docs/AGENTS.md#the-editor-extension">install steps</a>)</td>
-                </tr>
-                <tr>
-                  <td>Any MCP agent, or a terminal</td>
-                  <td><code>npm install -g github:AmberWJL/live-claude-notebook</code>, then <a href="guides/mcp-notes-server.html">add the MCP server</a></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p>Needs Node.js 18 or newer for the web notebook and the command. macOS, Windows and Linux.</p>
-        </section>
-
-        <section>
-          <h2>Questions</h2>
-          <details>
-            <summary>Does it upload my conversations?</summary>
-            <p>No. Notes are written to a folder on your computer and read from there. Nothing is sent to a Live Notebook server; there isn't one.</p>
-          </details>
-          <details>
-            <summary>Can an extension read Copilot's or Cursor's chat by itself?</summary>
-            <p>No editor lets one extension read another's chat. So you copy the reply and save it, or let an agent hook keep each reply in the inbox, or ask the agent to save it through MCP.</p>
-          </details>
-          <details>
-            <summary>What happens to my notes if I stop using it?</summary>
-            <p>They are Markdown files. They stay where they are, readable by any editor.</p>
-          </details>
-          <details>
-            <summary>Is it free?</summary>
-            <p>Yes. It is open source under the MIT license.</p>
-          </details>
-        </section>
-      </main>
-
+    <div class="wrap">
       <footer class="site">
         <div class="links">
           <a href="guides/save-claude-code-responses.html">Save Claude Code responses</a>
@@ -150,8 +135,50 @@
           <a href="privacy.html">Privacy</a>
           <a href="https://github.com/AmberWJL/live-claude-notebook">GitHub</a>
         </div>
-        Live Notebook is open source (MIT). Not affiliated with Anthropic, Cursor or Microsoft.
+        Live Notebook is open source (MIT). Not affiliated with Anthropic, Cursor or Microsoft. Film made with Remotion.
       </footer>
     </div>
+
+    <script>
+      ;(() => {
+        const film = document.getElementById('film')
+        const toggle = document.getElementById('film-toggle')
+        const icon = document.getElementById('film-icon')
+        const progress = document.getElementById('film-progress')
+        const PAUSE = 'M7 5h3v14H7zM14 5h3v14h-3z'
+        const PLAY = 'M8 5v14l11-7z'
+        const show = () => {
+          icon.setAttribute('d', film.paused ? PLAY : PAUSE)
+          toggle.setAttribute('aria-label', film.paused ? 'Play the film' : 'Pause the film')
+        }
+        // Plays on its own, muted, unless the visitor asked for less motion; then it waits for Play.
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          film.removeAttribute('autoplay')
+          film.pause()
+        }
+        film.addEventListener('play', show)
+        film.addEventListener('pause', show)
+        film.addEventListener('timeupdate', () => {
+          progress.style.width = `${(film.currentTime / (film.duration || 36)) * 100}%`
+        })
+        toggle.addEventListener('click', () => (film.paused ? film.play() : film.pause()))
+        document.getElementById('film-replay').addEventListener('click', () => {
+          film.currentTime = 0
+          film.play()
+        })
+        show()
+        for (const button of document.querySelectorAll('[data-copy]')) {
+          button.addEventListener('click', async () => {
+            try {
+              await navigator.clipboard.writeText(button.dataset.copy)
+              button.textContent = 'Copied'
+            } catch {
+              button.textContent = 'Select it'
+            }
+            setTimeout(() => (button.textContent = 'Copy'), 1600)
+          })
+        }
+      })()
+    </script>
   </body>
 </html>
