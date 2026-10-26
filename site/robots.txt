@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://amberwjl.github.io/live-claude-notebook/sitemap.xml

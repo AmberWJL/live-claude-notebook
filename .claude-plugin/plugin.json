@@ -1,9 +1,21 @@
 {
   "name": "live-notebook",
   "version": "0.3.58",
-  "description": "Capture, browse and search useful messages from Claude Code conversations without leaving Claude Code.",
+  "description": "Save replies from your Claude Code conversations as Markdown notes on your own computer, then browse, search and edit them in a pane or the web notebook. Local-first; the same notes folder Cursor, VS Code and MCP agents can use.",
   "author": {
     "name": "Amber Wang"
   },
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "homepage": "https://amberwjl.github.io/live-claude-notebook/",
+  "repository": "https://github.com/AmberWJL/live-claude-notebook",
+  "license": "MIT",
+  "keywords": [
+    "notes",
+    "markdown",
+    "knowledge-base",
+    "local-first",
+    "save-responses",
+    "search",
+    "mcp"
+  ]
 }
