@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A local MCP server for your coding notes | Live Notebook</title>
+    <meta name="description" content="live-notebook mcp: a local, zero-dependency MCP server with save_note, search_notes, read_note and list_notebooks, for Claude Code, Cursor, VS Code Copilot, Codex and Gemini CLI. Notes stay as Markdown files on your computer." />
+    <link rel="canonical" href="https://amberwjl.github.io/live-claude-notebook/guides/mcp-notes-server.html" />
+    <link rel="icon" href="../favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content="A local MCP server for your coding notes | Live Notebook" />
+    <meta property="og:description" content="live-notebook mcp: a local, zero-dependency MCP server with save_note, search_notes, read_note and list_notebooks, for Claude Code, Cursor, VS Code Copilot, Codex and Gemini CLI. Notes stay as Markdown files on your computer." />
+    <meta property="og:url" content="https://amberwjl.github.io/live-claude-notebook/guides/mcp-notes-server.html" />
+    <meta property="og:image" content="https://amberwjl.github.io/live-claude-notebook/media/social-preview.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="../styles.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="site">
+        <a class="brand" href="../"><span class="brand-mark" aria-hidden="true"></span>Live Notebook</a>
+        <nav class="site" aria-label="Site">
+          <a href="../#install">Install</a>
+          <a href="../guides/">Guides</a>
+          <a href="../privacy.html">Privacy</a>
+          <a href="https://github.com/AmberWJL/live-claude-notebook">GitHub</a>
+        </nav>
+      </header>
+      <main>
+        <article class="guide narrow">
+          <p class="eyebrow">Guide · MCP</p>
+          <h1>A local MCP server for your coding notes</h1>
+          <p class="lede">Give any MCP agent a notebook: it can save what you ask it to keep and look up what you saved before. The notes are Markdown files on your computer; the server reads and writes them and nothing else.</p>
+
+          <h2>Install</h2>
+          <pre><code>npm install -g github:AmberWJL/live-claude-notebook</code></pre>
+          <p>It needs Node.js 18 or newer and has no other dependencies. The server runs with <code>live-notebook mcp</code> over stdio.</p>
+
+          <h2>The tools</h2>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Tool</th><th>What it does</th></tr></thead>
+              <tbody>
+                <tr><td><code>save_note</code></td><td>Saves text as a note, with an optional title, notebook, type and tags.</td></tr>
+                <tr><td><code>search_notes</code></td><td>Finds notes whose title, text or tags contain the words, newest first.</td></tr>
+                <tr><td><code>read_note</code></td><td>Reads one note in full.</td></tr>
+                <tr><td><code>list_notebooks</code></td><td>Lists notebooks with their note counts and newest titles.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2>Add it to your agent</h2>
+          <p><strong>Claude Code</strong></p>
+          <pre><code>claude mcp add --scope user live-notebook -- live-notebook mcp</code></pre>
+          <p><strong>Cursor</strong>: <code>~/.cursor/mcp.json</code>, and <strong>Gemini CLI</strong>: <code>~/.gemini/settings.json</code></p>
+          <pre><code>{ "mcpServers": { "live-notebook": { "command": "live-notebook", "args": ["mcp"] } } }</code></pre>
+          <p><strong>VS Code</strong> (Copilot agent mode): run <strong>MCP: Add Server…</strong>, choose <strong>Command (stdio)</strong>, enter <code>live-notebook mcp</code>.</p>
+          <p><strong>Codex</strong>: <code>~/.codex/config.toml</code></p>
+          <pre><code>[mcp_servers.live-notebook]
+command = "live-notebook"
+args = ["mcp"]</code></pre>
+          <p>On Windows, use <code>"command": "cmd", "args": ["/c", "live-notebook", "mcp"]</code> if the agent cannot find the command.</p>
+
+          <h2>Things to ask</h2>
+          <ul>
+            <li>"Save that explanation to my notebook under Ops."</li>
+            <li>"Search my notes for idempotency."</li>
+            <li>"Before you start, check my notes on our deploy process."</li>
+          </ul>
+
+          <h2>What it can touch</h2>
+          <p>Only the notes folder (<code>~/.claude/live-notebook</code>, or <code>LIVE_NOTEBOOK_HOME</code>). Paths outside it are refused. It makes no network requests. Each note records which agent saved it.</p>
+
+        </article>
+      </main>
+      <footer class="site">
+        <div class="links">
+          <a href="../guides/save-claude-code-responses.html">Save Claude Code responses</a>
+          <a href="../guides/cursor-chat-to-markdown.html">Save Cursor chats</a>
+          <a href="../guides/mcp-notes-server.html">MCP notes server</a>
+          <a href="../privacy.html">Privacy</a>
+          <a href="https://github.com/AmberWJL/live-claude-notebook">GitHub</a>
+        </div>
+        Live Notebook is open source (MIT). Not affiliated with Anthropic, Cursor or Microsoft.
+      </footer>
+    </div>
+  </body>
+</html>

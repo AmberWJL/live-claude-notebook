@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Save Claude Code responses as Markdown notes | Live Notebook</title>
+    <meta name="description" content="How to save a Claude Code reply, or a few lines of one, as a Markdown note on your computer, then find it again. A free plugin for the Claude Code terminal, desktop app and VS Code extension." />
+    <link rel="canonical" href="https://amberwjl.github.io/live-claude-notebook/guides/save-claude-code-responses.html" />
+    <link rel="icon" href="../favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content="Save Claude Code responses as Markdown notes | Live Notebook" />
+    <meta property="og:description" content="How to save a Claude Code reply, or a few lines of one, as a Markdown note on your computer, then find it again. A free plugin for the Claude Code terminal, desktop app and VS Code extension." />
+    <meta property="og:url" content="https://amberwjl.github.io/live-claude-notebook/guides/save-claude-code-responses.html" />
+    <meta property="og:image" content="https://amberwjl.github.io/live-claude-notebook/media/social-preview.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="../styles.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="site">
+        <a class="brand" href="../"><span class="brand-mark" aria-hidden="true"></span>Live Notebook</a>
+        <nav class="site" aria-label="Site">
+          <a href="../#install">Install</a>
+          <a href="../guides/">Guides</a>
+          <a href="../privacy.html">Privacy</a>
+          <a href="https://github.com/AmberWJL/live-claude-notebook">GitHub</a>
+        </nav>
+      </header>
+      <main>
+        <article class="guide narrow">
+          <p class="eyebrow">Guide · Claude Code</p>
+          <h1>Save Claude Code responses as Markdown notes</h1>
+          <p class="lede">Claude Code answers scroll away. Live Notebook keeps the ones worth keeping as Markdown files you own, and finds them again in a second.</p>
+
+          <h2>Install the plugin</h2>
+          <p>In a Claude Code session, run:</p>
+          <pre><code>/plugin install live-notebook --marketplace AmberWJL/live-claude-notebook</code></pre>
+          <p>Answer <code>y</code> to add the marketplace. It is on right away and in every later session. It needs Claude Code 2.1.293 or newer and Node.js 18 or newer.</p>
+
+          <h2>Save a whole reply</h2>
+          <p>Under every reply there is a dim <strong>Save to notebook</strong> control. Press it, pick a notebook, press Save. The reply is saved word for word, code blocks included.</p>
+
+          <h2>Save part of a reply</h2>
+          <ol class="steps">
+            <li>Select the lines in the conversation.</li>
+            <li>Type <code>/save</code>. The selection opens in the notebook pane, ready to edit.</li>
+            <li>Or type <code>/save</code> followed by any text to save that.</li>
+          </ol>
+
+          <h2>Find it again</h2>
+          <p><code>/notebook</code> opens the pane: notebooks, notes, and a search over every word. <code>/notebook web</code> opens the web notebook in your browser, where you can edit, pin, move and export notes.</p>
+
+          <h2>Where the notes are</h2>
+          <p>Each note is a file under <code>~/.claude/live-notebook/notes/&lt;Notebook&gt;/</code> with a small front matter block: title, notebook, type, tags, dates and where it came from. Edit the files in any editor and the plugin picks up the change.</p>
+
+          <h2>Other chats in VS Code or Cursor</h2>
+          <p>For the other AI chats in your editor, such as Copilot or Cursor's agent, add the <a href="cursor-chat-to-markdown.html">Live Notebook editor extension</a>. It writes to the same folder, so every note shows up in one place.</p>
+
+        </article>
+      </main>
+      <footer class="site">
+        <div class="links">
+          <a href="../guides/save-claude-code-responses.html">Save Claude Code responses</a>
+          <a href="../guides/cursor-chat-to-markdown.html">Save Cursor chats</a>
+          <a href="../guides/mcp-notes-server.html">MCP notes server</a>
+          <a href="../privacy.html">Privacy</a>
+          <a href="https://github.com/AmberWJL/live-claude-notebook">GitHub</a>
+        </div>
+        Live Notebook is open source (MIT). Not affiliated with Anthropic, Cursor or Microsoft.
+      </footer>
+    </div>
+  </body>
+</html>

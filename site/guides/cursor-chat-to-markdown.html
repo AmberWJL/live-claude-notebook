@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Save Cursor chat replies as Markdown notes | Live Notebook</title>
+    <meta name="description" content="Three ways to keep Cursor agent and chat replies as Markdown notes on your computer: the Live Notebook extension, a local MCP server, or an afterAgentResponse hook. Also for VS Code Copilot." />
+    <link rel="canonical" href="https://amberwjl.github.io/live-claude-notebook/guides/cursor-chat-to-markdown.html" />
+    <link rel="icon" href="../favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content="Save Cursor chat replies as Markdown notes | Live Notebook" />
+    <meta property="og:description" content="Three ways to keep Cursor agent and chat replies as Markdown notes on your computer: the Live Notebook extension, a local MCP server, or an afterAgentResponse hook. Also for VS Code Copilot." />
+    <meta property="og:url" content="https://amberwjl.github.io/live-claude-notebook/guides/cursor-chat-to-markdown.html" />
+    <meta property="og:image" content="https://amberwjl.github.io/live-claude-notebook/media/social-preview.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="../styles.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="site">
+        <a class="brand" href="../"><span class="brand-mark" aria-hidden="true"></span>Live Notebook</a>
+        <nav class="site" aria-label="Site">
+          <a href="../#install">Install</a>
+          <a href="../guides/">Guides</a>
+          <a href="../privacy.html">Privacy</a>
+          <a href="https://github.com/AmberWJL/live-claude-notebook">GitHub</a>
+        </nav>
+      </header>
+      <main>
+        <article class="guide narrow">
+          <p class="eyebrow">Guide · Cursor and VS Code</p>
+          <h1>Save Cursor chat replies as Markdown notes</h1>
+          <p class="lede">Cursor's agent explains a fix, you close the chat, and the explanation is gone. Here are three ways to keep it as a Markdown note on your own computer. They also work for Copilot Chat in VS Code.</p>
+
+          <h2>1. The extension: copy, then save</h2>
+          <p>Install the Live Notebook extension (<a href="https://github.com/AmberWJL/live-claude-notebook/blob/main/docs/AGENTS.md#the-editor-extension">steps</a>). Then:</p>
+          <ol class="steps">
+            <li>Press the reply's Copy button in the chat.</li>
+            <li>Run <strong>Live Notebook: Save Clipboard as Note</strong> from the command palette.</li>
+            <li>Pick a notebook. The reply is saved exactly as written.</li>
+          </ol>
+          <p>Code in an editor works too: select it, right-click, <strong>Save Selection as Note</strong>. <strong>Search Notes</strong> finds anything you saved.</p>
+
+          <h2>2. Ask the agent: the MCP server</h2>
+          <p>Install the command with <code>npm install -g github:AmberWJL/live-claude-notebook</code> and add it to <code>~/.cursor/mcp.json</code>:</p>
+          <pre><code>{ "mcpServers": { "live-notebook": { "command": "live-notebook", "args": ["mcp"] } } }</code></pre>
+          <p>Now say "save that to my notebook under Payments" or "what did I save about retries?". The agent passes the text itself, so for an exact copy prefer the extension or the hook.</p>
+
+          <h2>3. Keep every reply: the hook</h2>
+          <p>Add to <code>~/.cursor/hooks.json</code>:</p>
+          <pre><code>{ "version": 1, "hooks": { "afterAgentResponse": [{ "command": "live-notebook hook" }] } }</code></pre>
+          <p>Each reply then waits in the web notebook's <strong>Inbox</strong> (the newest 50). Open one, pick a notebook, <strong>Save as note</strong>, or <strong>Discard</strong>. Run <code>live-notebook open</code> to see it.</p>
+
+          <h2>Why not read Cursor's chat history directly?</h2>
+          <p>Cursor keeps chats in an internal database with no public interface, and editors do not let one extension read another's chat. Live Notebook uses only the ways Cursor documents: the clipboard, MCP and hooks.</p>
+
+          <h2>Where the notes go</h2>
+          <p>Plain <code>.md</code> files in <code>~/.claude/live-notebook/notes/</code>, the same folder Live Notebook for Claude Code uses. Nothing is uploaded. <a href="../privacy.html">Privacy details</a>.</p>
+
+        </article>
+      </main>
+      <footer class="site">
+        <div class="links">
+          <a href="../guides/save-claude-code-responses.html">Save Claude Code responses</a>
+          <a href="../guides/cursor-chat-to-markdown.html">Save Cursor chats</a>
+          <a href="../guides/mcp-notes-server.html">MCP notes server</a>
+          <a href="../privacy.html">Privacy</a>
+          <a href="https://github.com/AmberWJL/live-claude-notebook">GitHub</a>
+        </div>
+        Live Notebook is open source (MIT). Not affiliated with Anthropic, Cursor or Microsoft.
+      </footer>
+    </div>
+  </body>
+</html>
