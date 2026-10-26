@@ -925,7 +925,15 @@ async function acceptEditorPost($: Dollar, post: EditorPost, surface: RenderSurf
   const [draft, edit, heading] = await Promise.all([read($, draftAtom), read($, editAtom), read($, editorHeadingAtom)])
   if (draft?.id !== post.draftId && edit?.id !== post.draftId) return
   if (post.clipboard !== undefined) await copyText($, post.clipboard, surface)
-  await update($, editorViewAtom, () => ({ draftId: post.draftId, ...post.view }))
+  const { cursor, ...shown } = post.view
+  await update($, editorViewAtom, () => ({ draftId: post.draftId, ...shown }))
+  const editing = draft?.id === post.draftId ? draft : edit
+  // A desktop's editor draws the whole text in the pane (`fit`): typing on a text's last row, past the
+  // rows the page holds, keeps that row in view by scrolling the pane to its end, the dates under it.
+  if (cursor !== undefined && editing?.content !== post.text && cursor >= shown.total - 1 && shown.total >= shown.height && (await read($, previewHiddenAtom))) {
+    // Only a convenience: a surface that cannot scroll there leaves the text's own update to go on.
+    await $.ui.scroll({ to: 'end', in: PANE }).catch(() => undefined)
+  }
   if (draft?.id === post.draftId && draft.content !== post.text) {
     await update($, draftAtom, current => (current && current.id === post.draftId ? { ...current, content: post.text } : current ?? null))
   }
@@ -1461,8 +1469,10 @@ export const register: Register = on => {
         columns: editorColumns(e.props.bodyColumns, e.surface === 'desktop'),
         rows,
         scroll: editorScroll,
+        // A desktop draws the whole text and scrolls it with the pane: its wheel only reaches a pane taller than its window.
+        ...(e.surface === 'desktop' ? { fit: true as const } : {}),
       }
-      // No height: the region is as tall as the rows the editor draws (`rows`).
+      // No height: the region is as tall as the rows the editor draws (`rows`, or the whole text under `fit`).
       editor = <Client key={EDITOR_KEY} module="./ui/editor.ts" props={props} width="100%" />
       if (isEditingTitle) {
         // The breadcrumb's title, pressed: a one-row editor over the title typed so far; empty, it shows the title

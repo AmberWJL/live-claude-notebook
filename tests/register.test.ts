@@ -845,10 +845,11 @@ describe('live-notebook hooks', () => {
         expect((await ui.find({ key: 'preview' }))?.text).toBe('Show preview')
         expect(await ui.find({ key: 'preview-body' })).toBeUndefined()
       }
-      // A surface that reports a three-row region still gets the 27 rows the pane has room for.
+      // A surface that reports a three-row region still gets the 27 rows the pane has room for; a desktop draws the
+      // whole text, for the pane to scroll.
       await ui.resize({ columns: 60, rows: 3, in: 'editor' })
       let lines = editorLines(await ui.drawn({ in: 'editor' }))
-      expect(lines).toHaveLength(40 - 13)
+      expect(lines).toHaveLength(surface === 'desktop' ? 60 : 40 - 13)
       expect(lines[0]).toBe('Line 1')
       expect(lines[26]).toBe('Line 27')
       // Heading 1 heads the cursor's line, the first, and the editor shows it.
@@ -860,19 +861,31 @@ describe('live-notebook hooks', () => {
       expect(editorLines(await ui.drawn({ in: 'editor' }))[0]).toBe('Line 1')
       await ui.redraw()
       expect(editorLines(await ui.drawn({ in: 'editor' }))[0]).toBe('Line 1')
-      // At the top, the wheel up is the pane's; down, it scrolls the text.
-      await wheel(-1)
-      expect(paneMoves).toEqual([-1])
-      for (let i = 0; i < 10; i += 1) await wheel(1)
-      expect(editorLines(await ui.drawn({ in: 'editor' }))[0]).toBe('Line 11')
-      expect(paneMoves).toEqual([-1])
-      // Past the text's end the pane takes the wheel; back up, the text does.
-      await wheel(40)
-      expect(editorLines(await ui.drawn({ in: 'editor' }))[0]).toBe('Line 34')
-      await wheel(1)
-      expect(paneMoves).toEqual([-1, 1])
-      await wheel(-33)
-      expect(editorLines(await ui.drawn({ in: 'editor' }))[0]).toBe('Line 1')
+      if (surface === 'desktop') {
+        // The desktop's wheel is the pane's, both ways; the last row is reached and edited there all the same.
+        await wheel(1)
+        await wheel(-1)
+        expect(paneMoves).toEqual([1, -1])
+        await ui.key({ key: 'pagedown', in: 'editor' })
+        await ui.key({ key: 'x', in: 'editor' })
+        expect(editorLines(await ui.drawn({ in: 'editor' }))[59]).toBe('xLine 60')
+        await ui.key({ key: 'z', meta: true, in: 'editor' })
+        await ui.key({ key: 'pageup', in: 'editor' })
+      } else {
+        // At the top, the wheel up is the pane's; down, it scrolls the text.
+        await wheel(-1)
+        expect(paneMoves).toEqual([-1])
+        for (let i = 0; i < 10; i += 1) await wheel(1)
+        expect(editorLines(await ui.drawn({ in: 'editor' }))[0]).toBe('Line 11')
+        expect(paneMoves).toEqual([-1])
+        // Past the text's end the pane takes the wheel; back up, the text does.
+        await wheel(40)
+        expect(editorLines(await ui.drawn({ in: 'editor' }))[0]).toBe('Line 34')
+        await wheel(1)
+        expect(paneMoves).toEqual([-1, 1])
+        await wheel(-33)
+        expect(editorLines(await ui.drawn({ in: 'editor' }))[0]).toBe('Line 1')
+      }
       // Shift+End selects the first line; ⌘C copies it through the hooks module, with no message.
       await ui.key({ key: 'end', shift: true, in: 'editor' })
       await ui.key({ key: 'c', meta: true, in: 'editor' })

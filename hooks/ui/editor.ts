@@ -30,6 +30,14 @@ export type EditorProps = {
    * instead of a new line, and Tab does nothing.
    */
   singleLine?: true
+  /**
+   * Every row of the text drawn, at least `rows`, so the region grows with
+   * the text and the pane scrolls it; and the width taken from where the
+   * pointer reaches, when that is wider. For a desktop, whose wheel reaches
+   * the pane only while its tree is taller than the pane, and whose box can
+   * be wider than the cells the hooks module counted.
+   */
+  fit?: true
 }
 
 export type Point = { row: number; col: number }
@@ -55,6 +63,8 @@ export type EditorState = {
   scrollSeen?: number
   /** What was last posted to the hooks module. */
   posted?: EditorReport
+  /** The widest the pointer has found the region (`fit`), while the hooks module still asks for `asked` columns. */
+  measured?: { asked: number; columns: number }
 }
 
 /** What the toolbar can ask of the editor. */
@@ -78,8 +88,11 @@ const HISTORY_MAX = 60
 /** The heading level of the cursor's line; its toolbar button then makes the line normal text. */
 export type EditorHeading = 'normal' | 'h1' | 'h2' | 'h3'
 
-/** The editor's window over its visual rows: the first one shown, how many in all, how many shown. */
-export type EditorView = { top: number; total: number; height: number }
+/**
+ * The editor's window over its visual rows: the first one shown, how many in
+ * all, how many shown; under `fit`, the cursor's visual row too.
+ */
+export type EditorView = { top: number; total: number; height: number; cursor?: number }
 
 /** What the hooks module keeps of the editor: the text, the heading under the cursor, the window. */
 export type EditorReport = { text: string; heading: EditorHeading; view: EditorView }
@@ -605,8 +618,16 @@ export function render(state: EditorState, surface: ClientSurface<EditorState>, 
   return Box({ flexDirection: 'column', children })
 }
 
-export function reportOf(state: EditorState, width: number, height: number): EditorReport {
-  return { text: textOf(state), heading: headingAt(state), view: viewOf(state, width, height) }
+/**
+ * The report at this size. Under `fit` (`fitRows`, the fewest rows drawn)
+ * every row shows, so the window is the whole text, and the cursor's row is
+ * reported for the pane to keep in view.
+ */
+export function reportOf(state: EditorState, width: number, height: number, fitRows?: number): EditorReport {
+  if (fitRows === undefined) return { text: textOf(state), heading: headingAt(state), view: viewOf(state, width, height) }
+  const rows = visualRows(state.lines, width)
+  const cursor = visualIndex(rows, state.row, state.col)
+  return { text: textOf(state), heading: headingAt(state), view: { top: 0, total: rows.length, height: Math.max(fitRows, rows.length), cursor } }
 }
 
 function isSameReport(a: EditorReport | undefined, b: EditorReport): boolean {
@@ -616,32 +637,41 @@ function isSameReport(a: EditorReport | undefined, b: EditorReport): boolean {
     a.heading === b.heading &&
     a.view.top === b.view.top &&
     a.view.total === b.view.total &&
-    a.view.height === b.view.height
+    a.view.height === b.view.height &&
+    a.view.cursor === b.view.cursor
   )
 }
 
 /** The state with its report posted to the hooks module when the report changed; the same state otherwise. */
-function synced(surface: ClientSurface<EditorState>, state: EditorState, width: number, height: number): EditorState {
-  const report = reportOf(state, width, height)
+function synced(surface: ClientSurface<EditorState>, state: EditorState, report: EditorReport): EditorState {
   if (isSameReport(state.posted, report)) return state
   const post: EditorPost = { draftId: state.draftId, ...report }
   surface.post(post)
   return { ...state, posted: report }
 }
 
+/** The window under `fit`: taller than any text, so the editor never scrolls itself. */
+const FIT_WINDOW = 1_000_000
+
 const Editor: ClientModule<EditorProps, EditorState> = (props, surface) => {
-  const width = Math.max(10, surface.columns || props.columns || 60)
+  const isSingleLine = props.singleLine === true
+  const isFit = props.fit === true && !isSingleLine
+  const asked = Math.max(10, surface.columns || props.columns || 60)
+  // Under `fit`, as wide as the pointer has found the region, while the hooks module asks for the same width.
+  const measured = surface.state?.measured
+  const width = isFit && measured !== undefined && measured.asked === asked ? Math.max(asked, measured.columns) : asked
   // The rows the hooks module asked for, not the size a surface reports: the
   // region is as tall as what is drawn, and a surface that reports a smaller
   // region (or one not laid out yet) must not cut the text to a few lines.
-  const isSingleLine = props.singleLine === true
-  const height = isSingleLine ? 1 : Math.max(3, props.rows || surface.rows || 8)
+  const rows = Math.max(3, props.rows || surface.rows || 8)
+  const height = isSingleLine ? 1 : isFit ? FIT_WINDOW : rows
+  const report = (one: EditorState) => reportOf(one, width, height, isFit ? rows : undefined)
   const command = props.command ?? null
   const scroll = props.scroll ?? 0
   let state = surface.state
   if (state === undefined || state.draftId !== props.draftId) {
     // A fresh text starts past the toolbar's latest command and the wheel's total, so neither is replayed.
-    state = { ...stateFrom(props.draftId, props.text), commandId: command?.id ?? 0, scrollSeen: scroll }
+    state = { ...stateFrom(props.draftId, props.text), commandId: command?.id ?? 0, scrollSeen: scroll, measured }
     // A title is edited from its end.
     if (isSingleLine) state = { ...state, row: state.lines.length - 1, col: (state.lines[state.lines.length - 1] ?? '').length }
   }
@@ -651,17 +681,24 @@ const Editor: ClientModule<EditorProps, EditorState> = (props, surface) => {
   if (scroll !== (state.scrollSeen ?? 0)) {
     state = { ...scrollBy(state, scroll - (state.scrollSeen ?? 0), width, height), scrollSeen: scroll }
   }
-  state = synced(surface, state, width, height)
+  state = synced(surface, state, report(state))
   if (state !== surface.state) surface.setState(state)
   const current = state
   const settle = (next: EditorState) => {
     if (next === current) return
-    surface.setState(synced(surface, next, width, height))
+    surface.setState(synced(surface, next, report(next)))
   }
   // A click puts the cursor where it lands; a drag (or a shift+click) selects up to there.
   surface.onPointer((event: ClientPointerEvent) => {
+    // Under `fit`, a hover or a click past the width found so far widens the text to there. A drag is
+    // left out: the region keeps the pointer while a button is held, past its edges too.
+    const reach = event.x + 1
+    const isWider = isFit && (event.type === 'down' || (event.type === 'move' && event.button === undefined)) && reach > width && reach <= asked * 2
+    const found = isWider ? { measured: { asked, columns: reach } } : {}
     if (event.type === 'down' && event.button === 'left') {
-      settle(pointAt(current, event.x, event.y, width, height, { extend: event.shift === true }))
+      settle({ ...pointAt(current, event.x, event.y, width, height, { extend: event.shift === true }), ...found })
+    } else if (isWider) {
+      surface.setState({ ...current, ...found })
     } else if (event.type === 'move' && event.button === 'left' && current.anchor !== undefined) {
       settle(pointAt(current, event.x, event.y, width, height, { extend: true }))
     } else if (event.type === 'up' && current.anchor !== undefined && selectionOf(current) === undefined) {
@@ -670,7 +707,7 @@ const Editor: ClientModule<EditorProps, EditorState> = (props, surface) => {
   })
   surface.onKey(event => {
     if (isSingleLine && (event.key === 'return' || event.key === 'enter')) {
-      const post: EditorPost = { draftId: current.draftId, ...reportOf(current, width, height), submit: true }
+      const post: EditorPost = { draftId: current.draftId, ...report(current), submit: true }
       surface.post(post)
       return
     }
@@ -679,15 +716,16 @@ const Editor: ClientModule<EditorProps, EditorState> = (props, surface) => {
       const text = selectedText(current)
       if (text === '') return
       const next = event.key === 'c' ? current : withTop(remember(current, deleteSelection(current)), width, height)
-      const report = reportOf(next, width, height)
-      const post: EditorPost = { draftId: next.draftId, ...report, clipboard: text }
+      const posted = report(next)
+      const post: EditorPost = { draftId: next.draftId, ...posted, clipboard: text }
       surface.post(post)
-      if (next !== current) surface.setState({ ...next, posted: report })
+      if (next !== current) surface.setState({ ...next, posted })
       return
     }
     settle(applyKey(current, event, width, height))
   })
-  return render(current, surface, width, height, props.placeholder ?? 'Click here, then type. Esc when done.')
+  const drawn = isFit ? Math.max(rows, visualRows(current.lines, width).length) : height
+  return render(current, surface, width, drawn, props.placeholder ?? 'Click here, then type. Esc when done.')
 }
 
 export default Editor
