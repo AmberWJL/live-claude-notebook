@@ -36,8 +36,6 @@ export type CaptureContext = {
 
 export type SourceReference = {
   sessionId?: string
-  /** The tool that saved the note when it was not this Mod: `cursor`, `cli`, `vscode`, ... (a note file's `agent`). */
-  agent?: string
   messageId?: string
   role?: SourceRole
   captureMode: CaptureMode

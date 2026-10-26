@@ -1,7 +1,7 @@
 {
   "name": "live-notebook",
   "version": "0.3.58",
-  "description": "Save replies from your Claude Code conversations as Markdown notes on your own computer, then browse, search and edit them in a pane or the web notebook. Local-first; the same notes folder Cursor, VS Code and MCP agents can use.",
+  "description": "Save replies from your Claude Code conversations as Markdown notes on your own computer, then browse, search and edit them in a pane or the web notebook. Local-first: no account, no cloud.",
   "author": {
     "name": "Amber Wang"
   },
@@ -15,7 +15,6 @@
     "knowledge-base",
     "local-first",
     "save-responses",
-    "search",
-    "mcp"
+    "search"
   ]
 }
