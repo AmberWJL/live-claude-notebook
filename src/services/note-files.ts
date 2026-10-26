@@ -44,6 +44,7 @@ export type NoteMeta = {
   updated?: string
   captured?: string
   session?: string
+  pinned?: boolean
   archived?: boolean
 }
 
@@ -64,9 +65,21 @@ export function serializeNote(entry: NotebookEntry): string {
   ]
   if (source !== undefined) lines.push(`captured: ${source.captureMode}`)
   if (source?.sessionId !== undefined) lines.push(`session: ${source.sessionId}`)
+  if (entry.pinned === true) lines.push('pinned: true')
   if (entry.status === 'archived') lines.push('archived: true')
   lines.push('---', '', entry.content, '')
   return lines.join('\n')
+}
+
+/**
+ * An empty note's file, as the web notebook makes one: titled Untitled until
+ * it has text. An empty file is not imported, so it becomes an entry only
+ * once something is written in it.
+ */
+export function blankNoteFile(id: string, folder: string, now: number): { path: string; text: string } {
+  const at = new Date(now).toISOString()
+  const text = ['---', `id: ${id}`, `title: ${quote('Untitled')}`, `folder: ${quote(folder)}`, `created: ${at}`, `updated: ${at}`, 'captured: excerpt', '---', '', ''].join('\n')
+  return { path: relPathFor({ id, title: 'Untitled', folder }), text }
 }
 
 /** Reads front matter and body; a file with no front matter is all body. */
@@ -106,6 +119,9 @@ export function parseNote(text: string): { meta: NoteMeta; content: string } {
       case 'session':
         if (value !== '') meta[key] = value
         break
+      case 'pinned':
+        meta.pinned = value === 'true'
+        break
       case 'archived':
         meta.archived = value === 'true'
         break
@@ -127,9 +143,9 @@ export type NoteFile = {
 export type ImportAction =
   | { kind: 'folder'; name: string }
   | { kind: 'folder-gone'; name: string }
-  | { kind: 'update'; entryId: string; content?: string; title?: string; file?: string; folder?: string; type?: EntryType }
+  | { kind: 'update'; entryId: string; content?: string; title?: string; file?: string; folder?: string; type?: EntryType; pinned?: boolean }
   | { kind: 'archive'; entryId: string }
-  | { kind: 'create'; path: string; folder: string; content: string; title?: string; id?: string; createdAt?: number; type?: EntryType }
+  | { kind: 'create'; path: string; folder: string; content: string; title?: string; id?: string; createdAt?: number; type?: EntryType; pinned?: true }
 
 export type ImportPlanInput = {
   /** Every note file now present. */
@@ -187,6 +203,7 @@ export function planImport(input: ImportPlanInput): ImportAction[] {
       if (meta.title !== undefined && meta.title !== 'Untitled') create.title = meta.title
       if (meta.id !== undefined && !byId.has(meta.id)) create.id = meta.id
       if (isEntryType(meta.type)) create.type = meta.type
+      if (meta.pinned === true) create.pinned = true
       const created = meta.created === undefined ? NaN : Date.parse(meta.created)
       if (Number.isFinite(created)) create.createdAt = created
       actions.push(create)
@@ -216,6 +233,11 @@ export function planImport(input: ImportPlanInput): ImportAction[] {
     }
     if (isEntryType(meta.type) && meta.type !== entry.type) {
       update.type = meta.type
+      isChanged = true
+    }
+    // A pin set or cleared on the web.
+    if ((meta.pinned === true) !== (entry.pinned === true)) {
+      update.pinned = meta.pinned === true
       isChanged = true
     }
     if (isChanged) actions.push(update)

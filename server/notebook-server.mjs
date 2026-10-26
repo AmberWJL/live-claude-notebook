@@ -23,6 +23,8 @@ import { createServer } from 'node:http'
 import { basename, extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { EXPORT_FORMATS } from '../src/services/export-markdown.mjs'
+
 const args = parseArgs(process.argv.slice(2))
 const root = resolve(args.root ?? join(process.env.HOME ?? '.', '.claude', 'live-notebook'))
 const notesDir = join(root, 'notes')
@@ -152,6 +154,7 @@ function parseNote(text) {
       }
     }
     if (key === 'archived') meta.archived = value === 'true'
+    else if (key === 'pinned') meta.pinned = value === 'true'
     else if (value !== '') meta[key] = value
   }
   return { meta, content: content.replace(/\n$/, '') }
@@ -163,6 +166,7 @@ function serializeNote(meta, content) {
     if (meta[key] === undefined) continue
     lines.push(`${key}: ${key === 'title' || key === 'folder' ? JSON.stringify(meta[key]) : meta[key]}`)
   }
+  if (meta.pinned === true) lines.push('pinned: true')
   if (meta.archived === true) lines.push('archived: true')
   lines.push('---', '', content, '')
   return lines.join('\n')
@@ -179,13 +183,8 @@ function listNotebooks() {
   for (const dir of readdirSync(notesDir, { withFileTypes: true })) {
     if (!dir.isDirectory() || dir.name.startsWith('.')) continue
     const folder = join(notesDir, dir.name)
-    let tags = []
-    try {
-      const meta = JSON.parse(readFileSync(join(folder, '_notebook.json'), 'utf8'))
-      if (Array.isArray(meta.tags)) tags = meta.tags.filter(tag => typeof tag === 'string').slice(0, 3)
-    } catch {
-      /* none */
-    }
+    const meta = readNotebookMeta(folder)
+    const tags = Array.isArray(meta.tags) ? meta.tags.filter(tag => typeof tag === 'string').slice(0, 3) : []
     const notes = []
     for (const file of readdirSync(folder, { withFileTypes: true })) {
       if (!file.isFile() || extname(file.name) !== '.md') continue
@@ -200,14 +199,34 @@ function listNotebooks() {
         created: meta.created ?? null,
         updated: meta.updated ?? stat.mtime.toISOString(),
         captured: meta.captured ?? null,
+        type: meta.type ?? null,
+        pinned: meta.pinned === true,
         preview: content.replace(/\s+/g, ' ').trim().slice(0, 140),
       })
     }
-    notes.sort((a, b) => String(b.updated).localeCompare(String(a.updated)))
-    notebooks.push({ name: dir.name, tags, count: notes.length, notes })
+    // Pinned notes first, then the newest.
+    notes.sort((a, b) => Number(b.pinned) - Number(a.pinned) || String(b.updated).localeCompare(String(a.updated)))
+    // An archived notebook stays off the page until a note is saved into it again.
+    if (meta.archived === true && notes.length === 0) continue
+    notebooks.push({ name: dir.name, tags, pinned: meta.pinned === true, count: notes.length, notes })
   }
-  notebooks.sort((a, b) => a.name.localeCompare(b.name))
+  // Pinned notebooks first, then by name.
+  notebooks.sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name))
   return notebooks
+}
+
+/** A notebook's `_notebook.json`: its tags from Claude Code, and the web's pinned and archived flags; `{}` when none. */
+function readNotebookMeta(folder) {
+  try {
+    const meta = JSON.parse(readFileSync(join(folder, '_notebook.json'), 'utf8'))
+    return meta !== null && typeof meta === 'object' && !Array.isArray(meta) ? meta : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeNotebookMeta(folder, meta) {
+  writeFileSync(join(folder, '_notebook.json'), JSON.stringify(meta, null, 2))
 }
 
 function titleOf(content) {
@@ -234,11 +253,43 @@ function updateNote(abs, body) {
     // No title of the person's own: the first line of the text names the note.
     meta.title = titleOf(nextContent) ?? 'Untitled'
   }
-  meta.updated = new Date().toISOString()
+  // The note's type, chosen on the page; Claude Code reads it back from the file.
+  if (NOTE_TYPES.includes(body.type)) meta.type = body.type
+  // Pinned (kept at the top of its notebook) and archived (gone from the page; Claude Code archives the entry).
+  if (body.pinned === true) meta.pinned = true
+  else if (body.pinned === false) delete meta.pinned
+  if (body.archived === true) meta.archived = true
+  // A pin alone is not an edit: the note keeps its place among the others.
+  const isEdit = typeof body.content === 'string' || typeof body.title === 'string' || NOTE_TYPES.includes(body.type) || body.archived === true
+  if (isEdit) meta.updated = new Date().toISOString()
   writeFileSync(abs, serializeNote(meta, nextContent))
   touch()
   return meta
 }
+
+/**
+ * Moves a note's file into another notebook's directory (which must exist);
+ * its front matter follows. Claude Code matches the moved file by its id.
+ */
+function moveNote(abs, rel, folderName) {
+  const folder = safeFolder(folderName)
+  if (folder === undefined) return { status: 400, error: 'bad folder' }
+  const { meta, content } = parseNote(readFileSync(abs, 'utf8'))
+  if (folder === rel.split('/')[0]) return { status: 200, path: rel, meta }
+  if (!existsSync(join(notesDir, folder))) return { status: 404, error: 'notebook not found' }
+  const next = `${folder}/${basename(abs)}`
+  const nextAbs = safeNotePath(next)
+  if (nextAbs === undefined) return { status: 400, error: 'bad path' }
+  if (existsSync(nextAbs)) return { status: 409, error: 'a note with that file name is already there' }
+  meta.folder = folder
+  meta.updated = new Date().toISOString()
+  writeFileSync(nextAbs, serializeNote(meta, content))
+  unlinkSync(abs)
+  touch()
+  return { status: 200, path: next, meta }
+}
+
+const NOTE_TYPES = ['insight', 'learning', 'reference', 'other']
 
 function slugOf(text) {
   const slug = String(text)
@@ -344,16 +395,32 @@ async function handle(req, res) {
       }
       if (req.method === 'PUT') {
         if (!existsSync(abs)) return send(res, 404, { error: 'not found' })
-        return send(res, 200, { ok: true, meta: updateNote(abs, await readBody(req)) })
+        const body = await readBody(req)
+        const rel = url.searchParams.get('path')
+        let meta = updateNote(abs, body)
+        let path = rel
+        if (typeof body.folder === 'string') {
+          // Moved to another notebook: the file changes directory.
+          const moved = moveNote(abs, rel, body.folder)
+          if (moved.status !== 200) return send(res, moved.status, { error: moved.error })
+          path = moved.path
+          meta = moved.meta
+        }
+        return send(res, 200, { ok: true, path, meta })
       }
       if (req.method === 'DELETE') {
+        // Delete: the file goes to <root>/trash/<Notebook>, so nothing is lost;
+        // Claude Code keeps the note as an archived entry.
         if (!existsSync(abs)) return send(res, 404, { error: 'not found' })
-        const { meta, content } = parseNote(readFileSync(abs, 'utf8'))
-        meta.archived = true
-        meta.updated = new Date().toISOString()
-        writeFileSync(abs, serializeNote(meta, content))
+        const rel = url.searchParams.get('path')
+        const folder = rel.split('/')[0]
+        const trash = join(root, 'trash', folder)
+        mkdirSync(trash, { recursive: true })
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+        const name = `${basename(abs, '.md')}--${stamp}.md`
+        renameSync(abs, join(trash, name))
         touch()
-        return send(res, 200, { ok: true })
+        return send(res, 200, { ok: true, trashed: `trash/${folder}/${name}` })
       }
     }
 
@@ -367,14 +434,32 @@ async function handle(req, res) {
     }
 
     if (pathname === '/api/notebook' && req.method === 'PUT') {
-      // Rename: the directory moves and every note's front matter follows.
       const body = await readBody(req)
       const from = safeFolder(body.name)
-      const to = safeFolder(body.newName)
-      if (from === undefined || to === undefined) return send(res, 400, { error: 'bad folder' })
+      if (from === undefined) return send(res, 400, { error: 'bad folder' })
       const fromDir = join(notesDir, from)
-      const toDir = join(notesDir, to)
       if (!existsSync(fromDir)) return send(res, 404, { error: 'not found' })
+      if (body.newName === undefined) {
+        // Pinned (kept at the top of the list) or archived (off the page with every note in it: the files stay,
+        // marked archived; Claude Code archives the entries and drops the notebook from its pane). The flags
+        // live in the notebook's meta file, which Claude Code keeps when it writes the tags.
+        if (body.archived === true) {
+          for (const file of readdirSync(fromDir)) {
+            if (extname(file) === '.md') updateNote(join(fromDir, file), { archived: true })
+          }
+        }
+        const meta = readNotebookMeta(fromDir)
+        if (body.pinned === true) meta.pinned = true
+        else if (body.pinned === false) delete meta.pinned
+        if (body.archived === true) meta.archived = true
+        writeNotebookMeta(fromDir, { ...meta, name: from })
+        touch()
+        return send(res, 200, { name: from, pinned: meta.pinned === true, archived: meta.archived === true })
+      }
+      // Rename: the directory moves and every note's front matter follows.
+      const to = safeFolder(body.newName)
+      if (to === undefined) return send(res, 400, { error: 'bad folder' })
+      const toDir = join(notesDir, to)
       if (from !== to && existsSync(toDir)) return send(res, 409, { error: 'a notebook with that name exists' })
       if (from !== to) renameSync(fromDir, toDir)
       for (const file of readdirSync(toDir)) {
@@ -385,9 +470,7 @@ async function handle(req, res) {
         writeFileSync(abs, serializeNote(meta, content))
       }
       try {
-        const metaFile = join(toDir, '_notebook.json')
-        const meta = existsSync(metaFile) ? JSON.parse(readFileSync(metaFile, 'utf8')) : {}
-        writeFileSync(metaFile, JSON.stringify({ ...meta, name: to }, null, 2))
+        writeNotebookMeta(toDir, { ...readNotebookMeta(toDir), name: to })
       } catch {
         /* the mod rewrites it */
       }
@@ -414,24 +497,18 @@ async function handle(req, res) {
       if (folder === undefined) return send(res, 400, { error: 'bad folder' })
       const notebook = listNotebooks().find(one => one.name === folder)
       if (!notebook) return send(res, 404, { error: 'not found' })
-      const parts = [`# ${folder}`, '']
-      if (notebook.tags.length > 0) parts.push(notebook.tags.map(tag => `#${tag}`).join(' '), '')
-      parts.push(`_Exported from Live Notebook on ${new Date().toISOString().slice(0, 10)} · ${notebook.count} ${notebook.count === 1 ? 'note' : 'notes'}_`, '')
-      for (const note of notebook.notes) {
+      // The same file the pane's Export writes: one module makes both. `format=txt` is plain text; else markdown.
+      const format = EXPORT_FORMATS[url.searchParams.get('format') === 'txt' ? 'txt' : 'md']
+      const notes = notebook.notes.map(note => {
         const { meta, content } = parseNote(readFileSync(join(notesDir, note.path), 'utf8'))
-        const facts = [meta.type, meta.created ? `created ${meta.created.slice(0, 10)}` : null, meta.captured === 'whole_message' ? 'from a message' : null]
-          .filter(Boolean)
-          .join(' · ')
-        parts.push('---', '', `## ${note.title}`, '')
-        if (facts) parts.push(`_${facts}_`, '')
-        parts.push(content, '')
-      }
+        return { title: note.title, type: meta.type ?? null, created: meta.created ?? null, fromMessage: meta.captured === 'whole_message', content }
+      })
       res.writeHead(200, {
-        'content-type': 'text/markdown; charset=utf-8',
-        'content-disposition': `attachment; filename="${slugOf(folder)}.md"`,
+        'content-type': `${format.mime}; charset=utf-8`,
+        'content-disposition': `attachment; filename="${slugOf(folder)}${format.extension}"`,
         'cache-control': 'no-store',
       })
-      return res.end(parts.join('\n'))
+      return res.end(format.render({ name: folder, tags: notebook.tags, notes }, new Date().toISOString().slice(0, 10)))
     }
 
     if (pathname.startsWith('/api/')) return send(res, 404, { error: 'not found' })

@@ -103,6 +103,10 @@ export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { t
   const prompts: string[] = []
   const commands: string[][] = []
   const copied: string[] = []
+  /** What the Save dialog answers: a path, or null for Cancel. */
+  const dialog: { savePath: string | null } = { savePath: `${HOME}/Downloads/export.md` }
+  /** The host: the Mac's appearance (`Dark`, or null for the light one, which sets no key) and the engine's theme row (null for none). */
+  const host: { appearance: 'Dark' | null; theme: string | null } = { appearance: null, theme: null }
   mock.env(on, { HOME })
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
   on('turn.complete', async (_$, e) => ({ text: e.answer }))
@@ -111,6 +115,11 @@ export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { t
     return { value: { command: e.name } }
   })
   on('session.id', async () => ({ value: 'session-test' }))
+  on('config.list', async () => ({
+    value: host.theme === null
+      ? []
+      : [{ key: 'theme', label: 'Theme', kind: 'choice', value: host.theme, options: ['auto', 'dark', 'light'], provider: { plugin: 'engine', tier: 'core' }, isLocked: false }],
+  }))
   on('session.root', async () => ({ value: '/tmp/live-notebook-test' }))
   on('session.messages', async () => ({ value: messages }))
   on('ui.open', async (_$, e) => {
@@ -118,6 +127,7 @@ export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { t
     return { value: { isPlaced: true as const } }
   })
   on('ui.selection', async () => ({ value: undefined }))
+  on('ui.focus', async () => ({}))
   on('ui.copy', async (_$, e) => {
     copied.push(e.text)
     return { value: { isCopied: true as const } }
@@ -129,10 +139,14 @@ export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { t
   on('model.complete', async (_$, e) => {
     prompts.push(e.prompt)
     const isClassify = e.prompt.startsWith('Classify')
+    // A note saved from the chat is asked for a title too; the answer comes quoted, with a period, as models do.
+    const title = e.prompt.includes('title: <the title>') ? '"TTL rule for cold caches."\n' : ''
     return {
       value: {
         isAnswered: true as const,
-        text: isClassify ? (options.type ?? 'type: insight\ntags: caching, ttl') : (options.tags ?? 'Live Claude Notebook, caching, TTL'),
+        text: isClassify
+          ? `${title === '' ? '' : `title: ${title}`}${options.type ?? 'type: insight\ntags: caching, ttl'}`
+          : (options.tags ?? 'Live Claude Notebook, caching, TTL'),
         usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
       },
     }
@@ -145,10 +159,22 @@ export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { t
       stdout = JSON.stringify({ port: 4321, pid: 999, url: 'http://127.0.0.1:4321', startedAt: 1 })
     } else if (argv[0] === 'node' && argv.includes('--stop')) {
       stdout = JSON.stringify({ stopped: true, pid: 999 })
+    } else if (argv[0] === '/usr/bin/osascript') {
+      // The Save dialog: Cancel ends the script with an error, as osascript does.
+      if (dialog.savePath === null) {
+        return { value: { exitCode: 1, stdout: '', stderr: 'execution error: User canceled. (-128)', isStdoutTruncated: false, isStderrTruncated: false } }
+      }
+      stdout = `${dialog.savePath}\n`
+    } else if (argv[0] === '/usr/bin/defaults') {
+      // The appearance: the light one sets no key, so defaults fails.
+      if (host.appearance === null) {
+        return { value: { exitCode: 1, stdout: '', stderr: 'The domain/default pair of (kCFPreferencesAnyApplication, AppleInterfaceStyle) does not exist', isStdoutTruncated: false, isStderrTruncated: false } }
+      }
+      stdout = `${host.appearance}\n`
     }
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  return { registered, opened, toasts, prompts, commands, copied }
+  return { registered, opened, toasts, prompts, commands, copied, dialog, host }
 }
 
 export function entryKeys(data: Map<string, unknown>): string[] {

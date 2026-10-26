@@ -10,8 +10,6 @@ import type {
 } from '../types'
 import { normalizeContent } from '../src/utils/normalize-content'
 
-/** How many recent messages `/save` offers for whole-message capture. */
-export const RECENT_LIMIT = 12
 /** How many appended rows are fingerprinted for message-id matching. */
 export const ROWS_LIMIT = 120
 const FINGERPRINT_CHARS = 160
@@ -42,24 +40,6 @@ export function matchRow(rows: readonly AppendedRow[], role: AppendedRow['role']
     row => row.role === role && row.length === fp.length && row.head === fp.head && row.tail === fp.tail,
   )
   return found.length === 1 ? found[0]?.uuid : undefined
-}
-
-/** The newest messages with text, newest first, with a row id where one matches. */
-export function candidatesFrom(
-  messages: readonly Message[],
-  rows: readonly AppendedRow[],
-  limit = RECENT_LIMIT,
-): MessageCandidate[] {
-  const candidates: MessageCandidate[] = []
-  for (let index = messages.length - 1; index >= 0 && candidates.length < limit; index -= 1) {
-    const message = messages[index]
-    if (message === undefined || message.text.trim() === '') continue
-    const candidate: MessageCandidate = { index, role: message.role, text: message.text }
-    const messageId = matchRow(rows, message.role, message.text)
-    if (messageId !== undefined) candidate.messageId = messageId
-    candidates.push(candidate)
-  }
-  return candidates
 }
 
 /**

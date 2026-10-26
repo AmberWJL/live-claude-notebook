@@ -1,7 +1,6 @@
 /* Live Notebook web app: notebooks and notes in the sidebar, one note open
- * in a Vditor editor (instant rendering: markdown markers show only where the
- * cursor is), autosaved to its markdown file through the local server. Plain
- * script, no build step. */
+ * in a Vditor instant-rendering editor, autosaved to its markdown file
+ * through the local server. Plain script, no build step. */
 ;(() => {
   const VDITOR_CDN = 'https://unpkg.com/vditor@4.0.1'
   const $ = id => document.getElementById(id)
@@ -14,11 +13,15 @@
     note: $('note'),
     title: $('title'),
     crumb: $('crumb-notebook'),
-    updated: $('meta-updated'),
-    captured: $('meta-captured'),
+    dates: $('meta-dates'),
+    type: $('note-type'),
+    newNotebookForm: $('new-notebook-form'),
+    newNotebookName: $('new-notebook-name'),
+    newNotebookCancel: $('new-notebook-cancel'),
     newNote: $('new-note'),
     newNotebook: $('new-notebook'),
     deleteNote: $('delete-note'),
+    menu: $('context-menu'),
   }
 
   const state = {
@@ -29,10 +32,14 @@
     saveTimer: null,
     query: '',
     collapsed: new Set(),
-    /** The notebook whose actions row is open, if any. */
-    menuFor: null,
     /** True once the person typed in the title field of the open note. */
     titleTouched: false,
+    /** `{ path, folder }` while a note row is being dragged to another notebook. */
+    dragging: null,
+    /** The paths of the notes picked with ⌘-click or shift-click; the menu then acts on all of them. */
+    selection: new Set(),
+    /** Where a shift-click's range starts: the row last clicked with a modifier. */
+    anchor: null,
   }
 
   /** The first meaningful line of the text, without markdown markers. */
@@ -54,19 +61,11 @@
   // ---------------------------------------------------------------- api --
 
   async function api(method, path, body) {
-    let response
-    try {
-      response = await fetch(path, {
-        method,
-        headers: body === undefined ? {} : { 'content-type': 'application/json' },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      })
-    } catch {
-      // No answer at all: the server is down or being replaced.
-      const error = new Error('the notebook server is not reachable')
-      error.offline = true
-      throw error
-    }
+    const response = await fetch(path, {
+      method,
+      headers: body === undefined ? {} : { 'content-type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
     if (!response.ok) {
       let detail = ''
       try {
@@ -79,10 +78,10 @@
     return response.status === 204 ? null : response.json()
   }
 
-  // Transient only: what is shown is the last save's outcome or an error,
-  // beside the note's meta line (or under the welcome text before a note opens).
+  // Only errors are shown, beside the note's meta line (or under the welcome
+  // text before a note opens); saving and loading go without a word.
   function setStatus(text, tone) {
-    const quiet = text === 'Ready' || text === 'Loading…' ? '' : text
+    const quiet = tone === 'error' ? text : ''
     els.status.textContent = quiet
     els.status.dataset.tone = tone ?? ''
     els.bootStatus.textContent = tone === 'error' ? quiet : ''
@@ -91,11 +90,33 @@
 
   // --------------------------------------------------------------- tree --
 
+  // Each note's type, marked as the Notebook pane in Claude Code marks it.
+  const TYPES = {
+    insight: { glyph: '◉', label: 'Insight' },
+    learning: { glyph: '↗', label: 'Learning' },
+    reference: { glyph: '▤', label: 'Reference' },
+    other: { glyph: '•', label: 'Other' },
+  }
+
+  /** The mark on a pinned note's row. */
+  const PIN_SVG =
+    '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path fill="currentColor" transform="rotate(45 8 8)" d="M5 1h6v2h-1v5h2v2H9v5H7v-5H4V8h2V3H5z"/></svg>'
+
   function formatDate(iso) {
     if (!iso) return ''
     const date = new Date(iso)
     if (Number.isNaN(date.getTime())) return ''
     return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
+
+  /** Under the title: when the note was created and, if it was edited in a later minute, when it was last edited. */
+  function showDates(meta) {
+    const created = formatDate(meta.created)
+    const edited = formatDate(meta.updated)
+    const parts = []
+    if (created !== '') parts.push(`Created ${created}`)
+    if (edited !== '' && edited !== created) parts.push(`Edited ${edited}`)
+    els.dates.textContent = parts.join(' · ')
   }
 
   function matches(note, query) {
@@ -112,43 +133,55 @@
       if (query !== '' && notes.length === 0) continue
       const section = document.createElement('section')
       section.className = 'notebook'
+      // A note row dragged over another notebook than its own can be dropped there to move it.
+      section.addEventListener('dragover', event => {
+        if (!state.dragging || state.dragging.folder === notebook.name) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+        markDropTarget(section)
+      })
+      section.addEventListener('dragleave', event => {
+        if (event.relatedTarget instanceof Node && section.contains(event.relatedTarget)) return
+        section.classList.remove('drop-target')
+      })
+      section.addEventListener('drop', event => {
+        if (!state.dragging || state.dragging.folder === notebook.name) return
+        event.preventDefault()
+        const { path } = state.dragging
+        endDrag()
+        void moveNote(path, notebook.name)
+      })
 
       const head = document.createElement('div')
       head.className = 'notebook-head'
-      head.innerHTML = `<span class="name"></span><span class="count"></span><button class="menu" type="button" title="Notebook actions">⋯</button>`
+      // A caret before the name marks the row as a notebook, not a note: `›` closed, turned down open.
+      head.innerHTML = `<span class="head-start"><span class="head-caret" aria-hidden="true">›</span><span class="name"></span>${
+        notebook.pinned ? `<span class="head-pin" title="Pinned">${PIN_SVG}</span>` : ''
+      }</span><span class="head-end"><button class="head-action" type="button">Export</button><span class="count"></span></span>`
       head.querySelector('.name').textContent = notebook.name
       head.querySelector('.count').textContent = String(notebook.count)
       head.title = state.collapsed.has(notebook.name) ? 'Expand' : 'Collapse'
-      head.addEventListener('click', event => {
-        if (event.target.closest('.menu')) return
+      head.classList.toggle('open', !state.collapsed.has(notebook.name))
+      head.addEventListener('click', () => {
         if (state.collapsed.has(notebook.name)) state.collapsed.delete(notebook.name)
         else state.collapsed.add(notebook.name)
         renderTree()
       })
-      head.querySelector('.menu').addEventListener('click', () => {
-        state.menuFor = state.menuFor === notebook.name ? null : notebook.name
-        renderTree()
+      // Right-click: Pin, Archive, Delete the notebook.
+      head.addEventListener('contextmenu', event => {
+        event.preventDefault()
+        openNotebookMenu(notebook, head, event)
+      })
+      // Export, at the head's right end, shows under the pointer; an empty notebook has nothing to export.
+      const exportButton = head.querySelector('.head-action')
+      exportButton.hidden = notebook.count === 0
+      exportButton.title = `Export ${notebook.name} as one markdown file`
+      exportButton.setAttribute('aria-label', `Export ${notebook.name}`)
+      exportButton.addEventListener('click', event => {
+        event.stopPropagation()
+        exportNotebook(notebook.name)
       })
       section.append(head)
-
-      if (state.menuFor === notebook.name) {
-        const actions = document.createElement('div')
-        actions.className = 'notebook-actions'
-        const make = (label, handler) => {
-          const button = document.createElement('button')
-          button.type = 'button'
-          button.className = 'button small'
-          button.textContent = label
-          button.addEventListener('click', () => void handler())
-          return button
-        }
-        actions.append(
-          make('Rename', () => renameNotebook(notebook.name)),
-          make('Export .md', () => exportNotebook(notebook.name)),
-          make('Delete', () => deleteNotebook(notebook.name)),
-        )
-        section.append(actions)
-      }
 
       if (Array.isArray(notebook.tags) && notebook.tags.length > 0) {
         const tags = document.createElement('div')
@@ -171,11 +204,49 @@
         for (const note of notes) {
           const row = document.createElement('button')
           row.type = 'button'
-          row.className = 'note-row' + (state.open && state.open.path === note.path ? ' selected' : '')
-          row.innerHTML = `<span class="row-title"></span><span class="row-preview"></span>`
+          row.className =
+            'note-row' +
+            (state.open && state.open.path === note.path ? ' selected' : '') +
+            (state.selection.has(note.path) ? ' picked' : '')
+          row.dataset.path = note.path
+          row.innerHTML = `<span class="row-head"><span class="row-mark"></span><span class="row-title"></span>${
+            note.pinned ? `<span class="row-pin" title="Pinned">${PIN_SVG}</span>` : ''
+          }</span><span class="row-preview"></span>`
+          const type = TYPES[note.type] ?? TYPES.other
+          row.querySelector('.row-mark').textContent = type.glyph
+          row.querySelector('.row-mark').title = type.label
           row.querySelector('.row-title').textContent = note.title
           row.querySelector('.row-preview').textContent = note.preview || '—'
-          row.addEventListener('click', () => void openNote(note.path))
+          // A plain click opens the note; ⌘-click (ctrl-click) adds it to or takes it from the picked notes, and
+          // shift-click picks every row from the last one clicked with a modifier to this one.
+          row.addEventListener('click', event => {
+            if (event.metaKey || event.ctrlKey) togglePicked(note.path)
+            else if (event.shiftKey) pickRange(note.path)
+            else {
+              clearPicked()
+              void openNote(note.path)
+            }
+          })
+          // Right-click (or the keyboard's menu key): Pin, Archive, Delete, for every picked note when this is one of them.
+          row.addEventListener('contextmenu', event => {
+            event.preventDefault()
+            if (!state.selection.has(note.path)) {
+              state.selection = new Set([note.path])
+              state.anchor = note.path
+              applyPicked()
+            }
+            openMenu(pickedNotes(), row, event)
+          })
+          // Drag onto another notebook to move the note there.
+          row.draggable = true
+          row.addEventListener('dragstart', event => {
+            closeMenu()
+            state.dragging = { path: note.path, folder: notebook.name }
+            event.dataTransfer.effectAllowed = 'move'
+            event.dataTransfer.setData('text/plain', note.path)
+            row.classList.add('dragging')
+          })
+          row.addEventListener('dragend', endDrag)
           section.append(row)
         }
       }
@@ -189,26 +260,233 @@
     }
   }
 
+  /** The file name an export suggests, as the server names a download. */
+  function slugOf(text) {
+    const slug = String(text)
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48)
+      .replace(/-+$/g, '')
+    return slug === '' ? 'notebook' : slug
+  }
+
+  /**
+   * Export: the notebook as one file, markdown by default or plain text when
+   * the Save dialog's format (or the name typed) says `.txt`. A browser with a
+   * Save dialog of its own (Chrome, Edge) asks where; another downloads the
+   * markdown under the name the server gives it. The suggested name carries no
+   * extension: the dialog appends the one its Format popup says (macOS leaves a
+   * typed `.md` alone when the format changes, so a suggested `.md` would save
+   * plain text as `name.md.txt`).
+   */
+  async function exportNotebook(name) {
+    const urlOf = format => `/api/export?name=${encodeURIComponent(name)}&format=${format}`
+    if (typeof window.showSaveFilePicker !== 'function') {
+      const link = document.createElement('a')
+      link.href = urlOf('md')
+      link.download = ''
+      document.body.append(link)
+      link.click()
+      link.remove()
+      return
+    }
+    let handle
+    try {
+      handle = await window.showSaveFilePicker({
+        suggestedName: slugOf(name),
+        types: [
+          { description: 'Markdown', accept: { 'text/markdown': ['.md'] } },
+          { description: 'Plain text', accept: { 'text/plain': ['.txt'] } },
+        ],
+      })
+    } catch (error) {
+      if (error && error.name === 'AbortError') return // Cancel
+      setStatus(error.message, 'error')
+      return
+    }
+    try {
+      const response = await fetch(urlOf(/\.txt$/i.test(handle.name) ? 'txt' : 'md'))
+      if (!response.ok) throw new Error(`Export failed (${response.status})`)
+      const writable = await handle.createWritable()
+      await writable.write(await response.blob())
+      await writable.close()
+    } catch (error) {
+      setStatus(`Export failed: ${error.message}`, 'error')
+    }
+  }
+
   async function refreshTree() {
     const { notebooks } = await api('GET', '/api/tree')
     state.notebooks = notebooks
+    // A picked note that is gone (deleted, archived, saved elsewhere) leaves the pick.
+    const present = new Set(allNotes().map(note => note.path))
+    for (const path of [...state.selection]) if (!present.has(path)) state.selection.delete(path)
     renderTree()
   }
 
+  // --------------------------------------------------------- picking --
+
+  function allNotes() {
+    return state.notebooks.flatMap(notebook => notebook.notes)
+  }
+
+  /** The picked notes, in the tree's order. */
+  function pickedNotes() {
+    return allNotes().filter(note => state.selection.has(note.path))
+  }
+
+  /** The rows show the pick without the tree being drawn again (so a row under the pointer keeps its place). */
+  function applyPicked() {
+    for (const row of els.tree.querySelectorAll('.note-row')) row.classList.toggle('picked', state.selection.has(row.dataset.path))
+  }
+
+  function clearPicked() {
+    if (state.selection.size === 0) return
+    state.selection.clear()
+    applyPicked()
+  }
+
+  function togglePicked(path) {
+    if (state.selection.has(path)) state.selection.delete(path)
+    else state.selection.add(path)
+    state.anchor = path
+    applyPicked()
+  }
+
+  function pickRange(path) {
+    const order = [...els.tree.querySelectorAll('.note-row')].map(row => row.dataset.path)
+    const from = order.indexOf(state.anchor ?? path)
+    const to = order.indexOf(path)
+    if (from < 0 || to < 0) return togglePicked(path)
+    for (const one of order.slice(Math.min(from, to), Math.max(from, to) + 1)) state.selection.add(one)
+    applyPicked()
+  }
+
+  // ------------------------------------------------------ drag and menu --
+
+  function markDropTarget(section) {
+    for (const one of els.tree.querySelectorAll('.drop-target')) {
+      if (one !== section) one.classList.remove('drop-target')
+    }
+    section.classList.add('drop-target')
+  }
+
+  function endDrag() {
+    state.dragging = null
+    for (const one of els.tree.querySelectorAll('.drop-target, .dragging')) one.classList.remove('drop-target', 'dragging')
+  }
+
+  /**
+   * The menu on a note row: Pin or Unpin, Archive, Delete, each with the count
+   * when several notes are picked (Pin 4, Archive 4, Delete 4); Unpin when
+   * every one of them is pinned.
+   */
+  function openMenu(notes, row, event) {
+    const count = notes.length
+    const suffix = count > 1 ? ` ${count}` : ''
+    const allPinned = notes.every(note => note.pinned)
+    showMenu(
+      [
+        { label: `${allPinned ? 'Unpin' : 'Pin'}${suffix}`, run: () => setPinned(notes, !allPinned) },
+        { label: `Archive${suffix}`, run: () => archiveNotes(notes) },
+        { label: `Delete${suffix}`, run: () => deleteNotes(notes), danger: true },
+      ],
+      row,
+      event,
+      count > 1 ? `${count} notes` : 'Note actions',
+    )
+  }
+
+  /** The menu on a notebook's head: Pin or Unpin, Archive, Delete the notebook. */
+  function openNotebookMenu(notebook, head, event) {
+    showMenu(
+      [
+        { label: notebook.pinned ? 'Unpin notebook' : 'Pin notebook', run: () => setNotebookPinned(notebook, !notebook.pinned) },
+        { label: 'Archive notebook', run: () => archiveNotebook(notebook) },
+        { label: 'Delete notebook', run: () => deleteNotebook(notebook), danger: true },
+      ],
+      head,
+      event,
+      'Notebook actions',
+    )
+  }
+
+  /** The menu's items, at the pointer, kept inside the window. */
+  function showMenu(items, row, event, label) {
+    closeMenu()
+    els.menu.setAttribute('aria-label', label)
+    for (const item of items) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'menu-item' + (item.danger ? ' danger' : '')
+      button.setAttribute('role', 'menuitem')
+      button.textContent = item.label
+      button.addEventListener('click', () => {
+        closeMenu()
+        void item.run()
+      })
+      els.menu.append(button)
+    }
+    els.menu.hidden = false
+    // The keyboard's menu key reports no pointer position: the menu opens under the row instead.
+    const rect = row.getBoundingClientRect()
+    const atPointer = event.clientX > 0 || event.clientY > 0
+    const x = atPointer ? event.clientX : rect.left + 16
+    const y = atPointer ? event.clientY : rect.bottom
+    els.menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - els.menu.offsetWidth - 8))}px`
+    els.menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - els.menu.offsetHeight - 8))}px`
+    els.menu.querySelector('.menu-item').focus()
+  }
+
+  function closeMenu() {
+    els.menu.hidden = true
+    els.menu.replaceChildren()
+  }
+
+  els.menu.addEventListener('contextmenu', event => event.preventDefault())
+  els.menu.addEventListener('keydown', event => {
+    const items = [...els.menu.querySelectorAll('.menu-item')]
+    const at = items.indexOf(document.activeElement)
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const step = event.key === 'ArrowDown' ? 1 : -1
+      items[(at + step + items.length) % items.length]?.focus()
+    } else if (event.key === 'Escape' || event.key === 'Tab') {
+      event.preventDefault()
+      closeMenu()
+    }
+  })
+  document.addEventListener('pointerdown', event => {
+    if (!els.menu.hidden && !els.menu.contains(event.target)) closeMenu()
+  })
+  els.tree.addEventListener('scroll', closeMenu)
+  window.addEventListener('resize', closeMenu)
+  window.addEventListener('blur', closeMenu)
+
   // ------------------------------------------------------------- editor --
+
+  // The editor stays in instant rendering: Vditor's mode shortcuts (⌘⌥7/8/9) are
+  // caught on the way down, before its own handlers see them.
+  document.getElementById('editor').addEventListener(
+    'keydown',
+    event => {
+      if ((event.metaKey || event.ctrlKey) && event.altKey && ['Digit7', 'Digit8', 'Digit9'].includes(event.code)) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+    },
+    true,
+  )
 
   function ensureEditor(initial) {
     return new Promise(resolve => {
       if (state.editor) {
-        state.quiet = true
         state.editor.setValue(initial, true)
-        state.quiet = false
         resolve(state.editor)
         return
       }
-      const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-      // Instant rendering: the note reads as formatted text, and a block's
-      // markdown markers show only while the cursor is in it. No mode switch.
       const editor = new Vditor('editor', {
         mode: 'ir',
         cdn: VDITOR_CDN,
@@ -216,8 +494,7 @@
         height: 'auto',
         minHeight: 420,
         value: initial,
-        placeholder: 'Write in markdown, or just write.',
-        theme: isDark ? 'dark' : 'classic',
+        placeholder: 'Write in markdown. The syntax fades as you type.',
         cache: { enable: false },
         counter: { enable: false },
         toolbarConfig: { pin: false },
@@ -227,28 +504,24 @@
           'italic',
           'strike',
           '|',
-          'line',
-          'quote',
-          '|',
           'list',
           'ordered-list',
           'check',
-          '|',
-          'table',
-          'link',
-          'inline-code',
+          'quote',
           'code',
+          'inline-code',
+          'link',
+          'table',
           '|',
           'undo',
           'redo',
         ],
         preview: {
-          theme: { current: isDark ? 'dark' : 'light' },
-          hljs: { lineNumber: false, style: isDark ? 'native' : 'github' },
+          markdown: { toc: true, mark: true },
+          math: { engine: 'KaTeX' },
+          hljs: { lineNumber: false },
         },
-        input: () => {
-          if (!state.quiet) markDirty()
-        },
+        input: () => markDirty(),
         after: () => {
           state.editor = editor
           resolve(editor)
@@ -267,34 +540,28 @@
 
   async function save() {
     if (!state.open || !state.dirty || !state.editor) return
+    const target = state.open
     const content = state.editor.getValue()
     let title = els.title.value.trim()
-    if (!state.titleTouched || title === '' || title === 'Untitled') {
-      // Not named by the person: the note is titled from its first line.
+    if (title === '' || title === 'Untitled' || (!state.titleTouched && title === titleOf(target.content ?? ''))) {
+      // Still titled from its first line: it follows that line. A title the
+      // person or Claude Code gave the note stays.
       const derived = titleOf(content)
       if (derived !== '') {
         title = derived
         els.title.value = derived
       }
     }
-    const target = state.open
     try {
       const result = await api('PUT', `/api/note?path=${encodeURIComponent(target.path)}`, { content, title })
       state.dirty = false
       target.content = content
       target.meta = { ...target.meta, ...result.meta }
-      els.updated.textContent = `Saved ${formatDate(target.meta.updated)}`
-      setStatus('Saved')
-      await refreshTree().catch(() => {})
+      showDates(target.meta)
+      setStatus('')
+      await refreshTree()
     } catch (error) {
-      if (error.offline) {
-        // The edit stays in the page and goes in once the server is back.
-        setStatus('Not saved yet: reconnecting to the notebook server…', 'error')
-        clearTimeout(state.saveTimer)
-        state.saveTimer = setTimeout(() => void save(), 2000)
-      } else {
-        setStatus(`Save failed: ${error.message}`, 'error')
-      }
+      setStatus(`Save failed: ${error.message}`, 'error')
     }
   }
 
@@ -309,12 +576,8 @@
       els.note.hidden = false
       els.crumb.textContent = note.meta.folder ?? path.split('/')[0]
       els.title.value = note.meta.title ?? ''
-      els.updated.textContent = note.meta.updated ? `Updated ${formatDate(note.meta.updated)}` : ''
-      els.captured.textContent = note.meta.captured
-        ? note.meta.captured === 'whole_message'
-          ? 'Saved from a whole message'
-          : 'Saved as an excerpt'
-        : 'Made here'
+      showDates(note.meta)
+      els.type.value = TYPES[note.meta.type] ? note.meta.type : 'other'
       location.hash = `#/${encodeURIComponent(path)}`
       await ensureEditor(note.content)
       setStatus('Ready')
@@ -338,8 +601,7 @@
     const folder =
       (state.open && state.open.meta.folder) ||
       (state.notebooks[0] && state.notebooks[0].name) ||
-      prompt('Name the first notebook:', 'General')
-    if (!folder) return
+      'General'
     try {
       const note = await api('POST', '/api/note', { folder, content: '' })
       await refreshTree()
@@ -350,79 +612,150 @@
     }
   }
 
-  async function newNotebook() {
-    const name = prompt('Notebook name:')
-    if (!name || name.trim() === '') return
-    try {
-      await api('POST', '/api/notebook', { name: name.trim() })
-      await refreshTree()
-    } catch (error) {
-      setStatus(error.message, 'error')
-    }
-  }
-
-  async function renameNotebook(name) {
-    const next = prompt(`Rename notebook "${name}" to:`, name)
-    if (!next || next.trim() === '' || next.trim() === name) return
-    try {
-      await api('PUT', '/api/notebook', { name, newName: next.trim() })
-      state.menuFor = null
-      if (state.open && state.open.meta.folder === name) closeNote()
-      await refreshTree()
-      setStatus(`Renamed to ${next.trim()}`)
-    } catch (error) {
-      setStatus(error.message, 'error')
-    }
-  }
-
-  // Fetched first, so an unreachable server shows here instead of as a failed download.
-  async function exportNotebook(name) {
-    try {
-      const response = await fetch(`/api/export?name=${encodeURIComponent(name)}`).catch(() => {
-        throw new Error('Export failed: the notebook server is not reachable. Reopen the notebook from Claude Code.')
-      })
-      if (!response.ok) throw new Error(`Export failed (${response.status})`)
-      const disposition = response.headers.get('content-disposition') ?? ''
-      const fileName = /filename="([^"]+)"/.exec(disposition)?.[1] ?? 'notebook.md'
-      const url = URL.createObjectURL(await response.blob())
-      const link = document.createElement('a')
-      link.href = url
-      link.download = fileName
-      document.body.append(link)
-      link.click()
-      link.remove()
-      setTimeout(() => URL.revokeObjectURL(url), 10_000)
-      state.menuFor = null
-      renderTree()
-    } catch (error) {
-      setStatus(error.message, 'error')
-    }
-  }
-
-  async function deleteNotebook(name) {
-    const notebook = state.notebooks.find(one => one.name === name)
-    const count = notebook ? notebook.count : 0
-    const what = count === 0 ? `Delete the empty notebook "${name}"?` : `Delete "${name}" and its ${count} ${count === 1 ? 'note' : 'notes'}? They move to the trash folder on disk, and Claude Code archives them.`
-    if (!confirm(what)) return
-    try {
-      await api('DELETE', `/api/notebook?name=${encodeURIComponent(name)}`)
-      state.menuFor = null
-      if (state.open && state.open.meta.folder === name) closeNote()
-      await refreshTree()
-      setStatus('Notebook deleted')
-    } catch (error) {
-      setStatus(error.message, 'error')
-    }
-  }
-
-  async function deleteNote() {
+  /** A new type for the open note, saved to its file at once. */
+  async function setType(type) {
     if (!state.open) return
-    if (!confirm(`Delete "${els.title.value || 'Untitled'}"? Claude Code keeps it as an archived entry.`)) return
+    const target = state.open
     try {
-      await api('DELETE', `/api/note?path=${encodeURIComponent(state.open.path)}`)
-      closeNote()
+      const result = await api('PUT', `/api/note?path=${encodeURIComponent(target.path)}`, { type })
+      target.meta = { ...target.meta, ...result.meta }
+      showDates(target.meta)
       await refreshTree()
-      setStatus('Deleted')
+    } catch (error) {
+      els.type.value = TYPES[target.meta.type] ? target.meta.type : 'other'
+      setStatus(error.message, 'error')
+    }
+  }
+
+  /** New notebook: a name field under the buttons, not a browser prompt. */
+  function showNotebookForm(isShown) {
+    els.newNotebookForm.hidden = !isShown
+    els.newNotebookName.value = ''
+    if (isShown) els.newNotebookName.focus()
+  }
+
+  async function newNotebook() {
+    const name = els.newNotebookName.value.trim()
+    if (name === '') return
+    try {
+      await api('POST', '/api/notebook', { name })
+      showNotebookForm(false)
+      await refreshTree()
+    } catch (error) {
+      setStatus(error.message, 'error')
+    }
+  }
+
+  function isOpen(path) {
+    return state.open !== null && state.open.path === path
+  }
+
+  /** Delete: each file goes to the trash folder; Claude Code keeps the notes as archived entries. */
+  async function deleteNotes(notes) {
+    const one = notes.length === 1 ? notes[0] : undefined
+    const question = one
+      ? `Delete "${one.title || 'Untitled'}"? The file moves to the trash folder; Claude Code keeps it as an archived entry.`
+      : `Delete ${notes.length} notes? The files move to the trash folder; Claude Code keeps them as archived entries.`
+    if (!confirm(question)) return
+    try {
+      for (const note of notes) {
+        if (isOpen(note.path)) {
+          // A pending autosave would write to a file that is gone.
+          clearTimeout(state.saveTimer)
+          state.dirty = false
+        }
+        await api('DELETE', `/api/note?path=${encodeURIComponent(note.path)}`)
+        if (isOpen(note.path)) closeNote()
+      }
+      await refreshTree()
+    } catch (error) {
+      setStatus(error.message, 'error')
+    }
+  }
+
+  /** Archive: the notes leave the page; their files stay, marked archived, and Claude Code archives the entries. */
+  async function archiveNotes(notes) {
+    try {
+      for (const note of notes) {
+        if (isOpen(note.path) && state.dirty) await save()
+        await api('PUT', `/api/note?path=${encodeURIComponent(note.path)}`, { archived: true })
+        if (isOpen(note.path)) closeNote()
+      }
+      await refreshTree()
+    } catch (error) {
+      setStatus(error.message, 'error')
+    }
+  }
+
+  /** A pinned note stays at the top of its notebook. */
+  async function setPinned(notes, pinned) {
+    try {
+      for (const note of notes) await api('PUT', `/api/note?path=${encodeURIComponent(note.path)}`, { pinned })
+      await refreshTree()
+    } catch (error) {
+      setStatus(error.message, 'error')
+    }
+  }
+
+  function isOpenIn(notebook) {
+    return state.open !== null && state.open.path.split('/')[0] === notebook.name
+  }
+
+  /** A pinned notebook stays at the top of the list. */
+  async function setNotebookPinned(notebook, pinned) {
+    try {
+      await api('PUT', '/api/notebook', { name: notebook.name, pinned })
+      await refreshTree()
+    } catch (error) {
+      setStatus(error.message, 'error')
+    }
+  }
+
+  /** Archive: the notebook and its notes leave the page; the files stay, marked archived; Claude Code archives the entries and drops the notebook. */
+  async function archiveNotebook(notebook) {
+    const notes = notebook.count === 0 ? '' : ` and its ${notebook.count} ${notebook.count === 1 ? 'note' : 'notes'}`
+    if (!confirm(`Archive "${notebook.name}"${notes}? The files stay, marked archived; Claude Code archives the entries and drops the notebook.`)) return
+    try {
+      if (isOpenIn(notebook) && state.dirty) await save()
+      await api('PUT', '/api/notebook', { name: notebook.name, archived: true })
+      if (isOpenIn(notebook)) closeNote()
+      await refreshTree()
+    } catch (error) {
+      setStatus(error.message, 'error')
+    }
+  }
+
+  /** Delete: the notebook's folder goes to the trash folder; Claude Code keeps its notes as archived entries. */
+  async function deleteNotebook(notebook) {
+    const notes = notebook.count === 0 ? '' : ` and its ${notebook.count} ${notebook.count === 1 ? 'note' : 'notes'}`
+    if (!confirm(`Delete "${notebook.name}"${notes}? The folder moves to the trash folder; Claude Code keeps the notes as archived entries.`)) return
+    try {
+      if (isOpenIn(notebook)) {
+        clearTimeout(state.saveTimer)
+        state.dirty = false
+      }
+      await api('DELETE', `/api/notebook?name=${encodeURIComponent(notebook.name)}`)
+      if (isOpenIn(notebook)) closeNote()
+      await refreshTree()
+    } catch (error) {
+      setStatus(error.message, 'error')
+    }
+  }
+
+  /** Move: the note's file changes notebook; an open note stays open at its new path. */
+  async function moveNote(path, folder) {
+    try {
+      if (isOpen(path) && state.dirty) await save()
+      const result = await api('PUT', `/api/note?path=${encodeURIComponent(path)}`, { folder })
+      if (isOpen(path)) {
+        state.open.path = result.path
+        state.open.meta = { ...state.open.meta, ...result.meta }
+        els.crumb.textContent = folder
+        showDates(state.open.meta)
+        location.hash = `#/${encodeURIComponent(result.path)}`
+      }
+      state.collapsed.delete(folder)
+      await refreshTree()
     } catch (error) {
       setStatus(error.message, 'error')
     }
@@ -431,8 +764,29 @@
   // --------------------------------------------------------------- wire --
 
   els.newNote.addEventListener('click', () => void newNote())
-  els.newNotebook.addEventListener('click', () => void newNotebook())
-  els.deleteNote.addEventListener('click', () => void deleteNote())
+  els.newNotebook.addEventListener('click', () => showNotebookForm(els.newNotebookForm.hidden))
+  els.newNotebookForm.addEventListener('submit', event => {
+    event.preventDefault()
+    void newNotebook()
+  })
+  els.newNotebookCancel.addEventListener('click', () => showNotebookForm(false))
+  els.newNotebookName.addEventListener('keydown', event => {
+    if (event.key === 'Escape') showNotebookForm(false)
+  })
+  els.deleteNote.addEventListener('click', () => {
+    if (state.open) void deleteNotes([{ path: state.open.path, title: els.title.value.trim() }])
+  })
+  // A click on the tree's own space, or Escape outside a field, lets the picked notes go.
+  els.tree.addEventListener('click', event => {
+    if (event.target === els.tree) clearPicked()
+  })
+  for (const [value, type] of Object.entries(TYPES)) {
+    const option = document.createElement('option')
+    option.value = value
+    option.textContent = `${type.glyph}  ${type.label}`
+    els.type.append(option)
+  }
+  els.type.addEventListener('change', () => void setType(els.type.value))
   els.title.addEventListener('input', () => {
     state.titleTouched = true
     markDirty()
@@ -458,6 +812,8 @@
     } else if (!inField && event.key === '/') {
       event.preventDefault()
       els.search.focus()
+    } else if (!inField && event.key === 'Escape' && els.menu.hidden) {
+      clearPicked()
     }
   })
   window.addEventListener('beforeunload', () => {
@@ -473,7 +829,7 @@
 
   // Poll the tree so notes saved from Claude Code show up while the page is open.
   setInterval(() => {
-    if (!state.dirty) void refreshTree().catch(() => setStatus('Server unreachable', 'error'))
+    if (!state.dirty && !state.dragging) void refreshTree().catch(() => setStatus('Server unreachable', 'error'))
   }, 4000)
 
   async function boot() {

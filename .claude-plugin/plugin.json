@@ -1,6 +1,6 @@
 {
   "name": "live-notebook",
-  "version": "0.3.5",
+  "version": "0.3.57",
   "description": "Capture, browse and search useful messages from Claude Code conversations without leaving Claude Code.",
   "author": {
     "name": "Amber Wang"

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { applyCommand, applyKey, headingAt, pointAt, selectedText, stateFrom, textOf, visualRows } from '../hooks/ui/editor'
+import { applyCommand, applyKey, canScroll, headingAt, pointAt, scrollBy, selectedText, stateFrom, textOf, viewOf, visualRows } from '../hooks/ui/editor'
+import { isOverPage } from '../hooks/ui/notebook-pane'
 
 const W = 20
 const H = 5
@@ -25,6 +26,15 @@ describe('editor state', () => {
     state = applyKey(state, { key: 'backspace' }, W, H)
     expect(textOf(state)).toBe('abc')
     expect(state.col).toBe(3)
+  })
+
+  test('the space bar, named "space" by the host, inserts a blank', async () => {
+    let state = stateFrom('d1', 'ab')
+    state = applyKey(state, { key: 'end' }, W, H)
+    state = applyKey(state, { key: 'space' }, W, H)
+    state = applyKey(state, { key: 'c' }, W, H)
+    expect(textOf(state)).toBe('ab c')
+    expect(state.col).toBe(4)
   })
 
   test('pasted text with newlines is inserted as lines', async () => {
@@ -147,5 +157,35 @@ describe('editor state', () => {
     expect(headingAt(applyCommand(state, 'normal'))).toBe('normal')
     state = pointAt(state, 0, 3, W, H)
     expect(headingAt(state)).toBe('normal')
+  })
+
+  test('the wheel scrolls the window without moving the cursor; a key brings the window back to it', async () => {
+    let state = stateFrom('d1', Array.from({ length: 12 }, (_, i) => `line ${i}`).join('\n'))
+    expect(canScroll(viewOf(state, W, H), -1)).toBe(false)
+    expect(canScroll(viewOf(state, W, H), 1)).toBe(true)
+    state = scrollBy(state, 4, W, H)
+    expect(viewOf(state, W, H)).toEqual({ top: 4, total: 12, height: H })
+    expect([state.row, state.col]).toEqual([0, 0])
+    // Held at the end of the text, which can then go no further down.
+    state = scrollBy(state, 50, W, H)
+    expect(state.top).toBe(12 - H)
+    expect(canScroll(viewOf(state, W, H), 1)).toBe(false)
+    expect(canScroll(viewOf(state, W, H), -1)).toBe(true)
+    // A click lands on the row shown there.
+    expect(pointAt(state, 0, 0, W, H).row).toBe(12 - H)
+    // A key at the cursor, still on the first line, scrolls back to it.
+    state = applyKey(state, { key: 'right' }, W, H)
+    expect([state.row, state.col, state.top]).toEqual([0, 1, 0])
+    expect(scrollBy(state, -3, W, H).top).toBe(0)
+  })
+
+  test('a wide pane hands the wheel over its home column to the pane', async () => {
+    expect(isOverPage(5, 80, false)).toBe(true)
+    expect(isOverPage(5, 140, false)).toBe(false)
+    expect(isOverPage(100, 140, false)).toBe(true)
+    // A desktop's home column is wider (73 cells), and a desktop of 120 has no column at all.
+    expect(isOverPage(60, 140, true)).toBe(false)
+    expect(isOverPage(76, 140, true)).toBe(true)
+    expect(isOverPage(5, 120, true)).toBe(true)
   })
 })

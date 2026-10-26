@@ -26,22 +26,25 @@ import type {
 import { NotebookError, messageOf } from '../src/domain/errors'
 import { defaultFolders } from '../src/domain/notebook-entry'
 import { classifyPrompt, parseClassification } from '../src/services/classify'
+import { EXPORT_FORMATS, formatOf } from '../src/services/export-markdown.mjs'
+import { deriveTitle } from '../src/utils/normalize-content'
 import {
   NOTEBOOK_META_FILE,
   NOTES_DIR,
   TOUCH_FILE,
+  blankNoteFile,
   changedFiles,
   planImport,
   relPathFor,
   serializeNote,
+  slugOf,
   type NoteFile,
 } from '../src/services/note-files'
 import { NotebookService } from '../src/services/notebook-service'
-import { heuristicTags, isCurrent, notebookStats, parseTags, tagsBasis, tagsPrompt } from '../src/services/notebook-tags'
+import { activeIn, heuristicTags, isCurrent, notebookStats, parseTags, tagsBasis, tagsPrompt } from '../src/services/notebook-tags'
 import { HostStoreNotebookRepository, type HostStore } from '../src/storage/host-store-adapter'
 import {
   ROWS_LIMIT,
-  candidatesFrom,
   contextAround,
   draftFromCandidate,
   draftFromExcerpt,
@@ -50,21 +53,40 @@ import {
   matchRow,
   type CaptureMeta,
 } from './capture'
-import { EDITOR_KEY, type EditorPost, type EditorProps } from './ui/editor'
+import { EDITOR_KEY, SEARCH_EDITOR_KEY, TITLE_EDITOR_KEY, canScroll, type EditorPost, type EditorProps } from './ui/editor'
 import { renderAssistantBlock } from './ui/message-row'
-import { editorColumns, renderNotebookPane, renderReadOnlyPane, type PaneActions } from './ui/notebook-pane'
+import { editorColumns, isOverPage, renderNotebookPane, renderReadOnlyPane, type PaneActions } from './ui/notebook-pane'
 
 /** The pane's id and the plugin's name, as `plugin.json` spells it. */
 const PANE = 'live-notebook'
 const TITLE = 'Live Notebook'
-/** The fewest rows the content editor takes in the pane. */
+/** A note row's grey under the pointer, light or dark as the theme is; the theme's own greys draw too dark. */
+const HOVER_LIGHT = '#e8e8e8'
+const HOVER_DARK = '#33332f'
+/** The fewest rows the capture editor takes in the pane. */
 const EDITOR_MIN_ROWS = 12
-/** Rows of the pane the editor page needs besides the editor. */
+/** Rows of the pane the capture page needs besides the editor. */
 const EDITOR_CHROME_ROWS = 11
-/** The width asked for while a note is being written or edited. */
+/** An editor page's title field and the row above it. */
+const TITLE_FIELD_ROWS = 2
+/** Rows above the editor's text on its page: the header, the toolbar, the editor's top border, a row between each. */
+const EDITOR_TOP_ROWS = 5
+/** The preview under the editor: the row above it, its heading row and its border. */
+const PREVIEW_CHROME_ROWS = 4
+/** The fewest rows the editor keeps while the preview shares the page with it. */
+const EDITOR_MIN_ROWS_WITH_PREVIEW = 6
+/** The width asked for while a capture is being edited. */
 const EDITOR_COLUMNS = 110
 /** How often the notes directory is checked for edits made on the web. */
 const IMPORT_EVERY_MS = 3_000
+/** Where Export puts a notebook's markdown file when there is no Save dialog to ask, under the notes root. */
+const EXPORTS_DIR = 'exports'
+/** macOS's AppleScript runner, which shows the Save dialog; absent, there is no dialog. */
+const OSASCRIPT = '/usr/bin/osascript'
+/** macOS's preferences reader, which tells the Mac's appearance; absent, the engine's theme row decides. */
+const DEFAULTS = '/usr/bin/defaults'
+/** How long the Save dialog may stay open. */
+const SAVE_DIALOG_MS = 600_000
 /** How long a status line stays before it clears itself. */
 const NOTICE_MS = 6_000
 /** The model that chooses notebook tags and note types, and its limits. */
@@ -72,6 +94,8 @@ const TAGS_MODEL = 'haiku'
 const TAGS_MAX_TOKENS = 60
 const TAGS_TIMEOUT_MS = 20_000
 const TYPE_MAX_TOKENS = 40
+/** Room for a title line besides the type and tags. */
+const TITLED_MAX_TOKENS = 90
 
 // Session state the pane draws from. Declared here, as consts of the hooks
 // module, so the engine can match each one to the contract in ../types.
@@ -85,18 +109,64 @@ const notesRootAtom = atom({ plugin: 'live-notebook', key: 'notesRoot' } as cons
 const serverAtom = atom({ plugin: 'live-notebook', key: 'server' } as const, null as ServerInfo | null)
 const knownAtom = atom({ plugin: 'live-notebook', key: 'known' } as const, {} as Record<string, number>)
 const touchAtom = atom({ plugin: 'live-notebook', key: 'touch' } as const, 0)
-const candidatesAtom = atom({ plugin: 'live-notebook', key: 'candidates' } as const, [] as MessageCandidate[])
 const rowsAtom = atom({ plugin: 'live-notebook', key: 'rows' } as const, [] as AppendedRow[])
 const queryAtom = atom({ plugin: 'live-notebook', key: 'query' } as const, '')
+const searchSeedAtom = atom({ plugin: 'live-notebook', key: 'searchSeed' } as const, 0)
 const typeFilterAtom = atom({ plugin: 'live-notebook', key: 'typeFilter' } as const, '')
 const noticeAtom = atom({ plugin: 'live-notebook', key: 'notice' } as const, null as Notice)
 const namingNotebookAtom = atom({ plugin: 'live-notebook', key: 'namingNotebook' } as const, false)
+/** A saved note's `⋯` menu (Archive, Delete) is open. */
+const menuOpenAtom = atom({ plugin: 'live-notebook', key: 'menuOpen' } as const, false)
+/** A capture or edit page's breadcrumb title has been pressed: a field holds it until Enter. */
+const titleEditingAtom = atom({ plugin: 'live-notebook', key: 'titleEditing' } as const, false)
 const isLoadingAtom = atom({ plugin: 'live-notebook', key: 'isLoading' } as const, true)
 const isSavingAtom = atom({ plugin: 'live-notebook', key: 'isSaving' } as const, false)
-const showSnapshotAtom = atom({ plugin: 'live-notebook', key: 'showSnapshot' } as const, false)
 const collapsedAtom = atom({ plugin: 'live-notebook', key: 'collapsed' } as const, [] as string[])
 const editorCommandAtom = atom({ plugin: 'live-notebook', key: 'editorCommand' } as const, null as { id: number; kind: string } | null)
 const editorHeadingAtom = atom({ plugin: 'live-notebook', key: 'editorHeading' } as const, 'normal')
+const editorScrollAtom = atom({ plugin: 'live-notebook', key: 'editorScroll' } as const, 0)
+/** The preview under the capture editor starts folded away; Show preview opens it, and the choice holds for the session. */
+const previewHiddenAtom = atom({ plugin: 'live-notebook', key: 'previewHidden' } as const, true)
+const editorViewAtom = atom(
+  { plugin: 'live-notebook', key: 'editorView' } as const,
+  null as { draftId: string; top: number; total: number; height: number } | null,
+)
+
+/** The pane body's width as last drawn, for telling a wheel over the home column from one over the page. */
+let paneColumns = 0
+let paneIsDesktop = false
+/** The first page row under the editor as last drawn, for telling a wheel over the preview from one over the editor. */
+let editorEndRow = Number.POSITIVE_INFINITY
+
+/** Whether the terminal theme (the engine's `theme` row, dark by default) is a dark one, read at session start. */
+let isDarkTheme = false
+/** Whether the Mac's appearance, which the desktop app follows, is dark; read at a desktop session's start, null when unknown. */
+let isMacDark: boolean | null = null
+
+/**
+ * Whether the Mac's appearance is dark: `defaults` prints `Dark` for the dark
+ * appearance and fails for the light one, which sets no such key. Null off
+ * macOS or when the reader fails.
+ */
+async function readMacAppearance($: Dollar): Promise<boolean | null> {
+  try {
+    if (!(await $.fs.exists(DEFAULTS))) return null
+    const result = await $.process.run([DEFAULTS, 'read', '-g', 'AppleInterfaceStyle'], { timeoutMs: 5_000 })
+    return result.exitCode === 0 && result.stdout.trim() === 'Dark'
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether a surface draws in a dark theme. The desktop app follows the Mac's
+ * appearance; the engine's `theme` row is the terminal's own setting and says
+ * nothing about the desktop.
+ */
+function isDarkSurface(surface: RenderSurface): boolean {
+  if (surface === 'desktop' && isMacDark !== null) return isMacDark
+  return isDarkTheme
+}
 
 type Dollar = EngineInterface
 
@@ -160,6 +230,8 @@ function duplicateOf(entries: readonly NotebookEntry[], draft: CaptureDraft): No
 
 async function setView($: Dollar, view: NotebookView): Promise<void> {
   await update($, viewAtom, () => view)
+  await update($, titleEditingAtom, () => false)
+  await update($, menuOpenAtom, () => false)
 }
 
 /** Reloads the drawing cache from the store; reports malformed records. */
@@ -184,7 +256,7 @@ async function afterChange($: Dollar): Promise<void> {
 }
 
 async function showHome($: Dollar): Promise<void> {
-  await update($, queryAtom, () => '')
+  await setQueryFromOutside($, '')
   await update($, typeFilterAtom, () => '')
   await update($, namingNotebookAtom, () => false)
   const view = await read($, viewAtom)
@@ -195,7 +267,14 @@ async function showHome($: Dollar): Promise<void> {
   } else if (view.kind === 'edit') {
     const edit = await read($, editAtom)
     const entry = edit ? (await read($, entriesAtom)).find(one => one.id === edit.entryId) : undefined
-    if (edit && entry && entry.content === edit.content && entry.folder === edit.folder) {
+    const isUnchanged =
+      edit !== null &&
+      entry !== undefined &&
+      entry.content === edit.content &&
+      entry.title === edit.title.trim() &&
+      (edit.type ?? entry.type) === entry.type &&
+      (edit.folder ?? entry.folder) === entry.folder
+    if (isUnchanged) {
       await update($, editAtom, () => null)
     } else if (edit) {
       await flashNotice($, { tone: 'ok', text: 'Edit kept', resume: true })
@@ -203,6 +282,7 @@ async function showHome($: Dollar): Promise<void> {
   }
 }
 
+/** Back to the edit or the capture the person left by the home icon. */
 async function resumeEditing($: Dollar): Promise<void> {
   const [draft, edit] = await Promise.all([read($, draftAtom), read($, editAtom)])
   await setNotice($, null)
@@ -217,6 +297,12 @@ async function setQuery($: Dollar, query: string): Promise<void> {
   await update($, queryAtom, () => query)
 }
 
+/** A query not typed into the desktop's search editor: the editor is re-seeded with it. */
+async function setQueryFromOutside($: Dollar, query: string): Promise<void> {
+  await setQuery($, query)
+  await update($, searchSeedAtom, seed => (seed ?? 0) + 1)
+}
+
 async function setTypeFilter($: Dollar, type: string): Promise<void> {
   await update($, typeFilterAtom, () => type)
 }
@@ -225,8 +311,25 @@ async function toggleNewNotebook($: Dollar): Promise<void> {
   await update($, namingNotebookAtom, isOpen => !(isOpen ?? false))
 }
 
-async function toggleSnapshot($: Dollar): Promise<void> {
-  await update($, showSnapshotAtom, isShown => !(isShown ?? false))
+/** `⋯` on a saved note's page: its menu opens or closes. Its own flag, so the home page's new-notebook field beside it leaves it alone. */
+async function toggleMenu($: Dollar): Promise<void> {
+  await update($, menuOpenAtom, isOpen => !(isOpen ?? false))
+}
+
+/** Opens the pane on its current view, with the `⋯` menu closed. */
+async function showPane($: Dollar): Promise<void> {
+  await update($, namingNotebookAtom, () => false)
+  await update($, menuOpenAtom, () => false)
+  await update($, titleEditingAtom, () => false)
+  await $.ui.open({ id: PANE, title: TITLE, focus: true })
+}
+
+/** Opens (or widens) the pane for editing a capture before it is saved. */
+async function openForEditing($: Dollar): Promise<void> {
+  await update($, namingNotebookAtom, () => false)
+  await update($, titleEditingAtom, () => false)
+  await update($, editorHeadingAtom, () => 'normal')
+  await $.ui.open({ id: PANE, title: TITLE, focus: true, columns: EDITOR_COLUMNS, rows: 30 })
 }
 
 /**
@@ -237,11 +340,88 @@ async function formatEditor($: Dollar, kind: string): Promise<void> {
   await update($, editorCommandAtom, current => ({ id: (current?.id ?? 0) + 1, kind }))
 }
 
-/** Opens (or widens) the pane for writing. */
-async function openForEditing($: Dollar): Promise<void> {
-  await update($, namingNotebookAtom, () => false)
-  await update($, editorHeadingAtom, () => 'normal')
-  await $.ui.open({ id: PANE, title: TITLE, focus: true, columns: EDITOR_COLUMNS, rows: 30 })
+/** Show preview or Hide preview, at the end of the editor pages' formatting row; hidden to start, and the choice holds for the session. */
+async function togglePreview($: Dollar): Promise<void> {
+  await update($, previewHiddenAtom, isHidden => !(isHidden ?? false))
+}
+
+/** The breadcrumb's title pressed on a capture or edit page: a one-row editor takes its place, and the keys go to it. */
+async function beginTitleEdit($: Dollar): Promise<void> {
+  await update($, titleEditingAtom, () => true)
+  // Best effort: a surface that cannot move the focus leaves the person to click into the row.
+  try {
+    await $.ui.focus({ requestId: PANE, key: TITLE_EDITOR_KEY })
+  } catch {
+    // nothing to do
+  }
+}
+
+/** Enter in that field: the title shows in the breadcrumb again. */
+async function endTitleEdit($: Dollar): Promise<void> {
+  await update($, titleEditingAtom, () => false)
+}
+
+async function setEditTitle($: Dollar, title: string): Promise<void> {
+  await update($, editAtom, edit => (edit ? { ...edit, title } : null))
+}
+
+/** The edit page's type picker changed; the type is saved with the edit. */
+async function setEditType($: Dollar, type: EntryType): Promise<void> {
+  await update($, editAtom, edit => (edit ? { ...edit, type } : null))
+}
+
+/** The edit page's notebook picker changed; the note moves when the edit is saved. */
+async function setEditFolder($: Dollar, folder: string): Promise<void> {
+  await update($, editAtom, edit => (edit ? { ...edit, folder } : null))
+}
+
+/** What the editor's ⌘C or ⌘X puts on the clipboard; only a failure is said. */
+async function copyText($: Dollar, text: string, surface: RenderSurface): Promise<void> {
+  const result = await $.ui.copy({ text, surface })
+  if (!result.isCopied) await flashNotice($, { tone: 'error', text: 'Nothing to copy to here' })
+}
+
+/**
+ * The Save dialog for an export, on macOS: the path chosen, or undefined
+ * when it was cancelled. The dialog belongs to the app in front (the desktop
+ * app or the terminal), so it shows over it. Without `osascript` (another
+ * OS) there is no dialog: the file goes to `fallback`.
+ */
+async function chooseSavePath($: Dollar, prompt: string, name: string, fallback: string): Promise<string | undefined> {
+  if (!(await $.fs.exists(OSASCRIPT))) return fallback
+  const script = `tell application (path to frontmost application as text) to POSIX path of (choose file name with prompt ${JSON.stringify(prompt)} default name ${JSON.stringify(name)} default location (path to downloads folder))`
+  const result = await $.process.run([OSASCRIPT, '-e', script], { timeoutMs: SAVE_DIALOG_MS })
+  const path = result.stdout.trim()
+  return result.exitCode === 0 && path !== '' ? path : undefined
+}
+
+/**
+ * Export, on a notebook's header row: its notes as one file, the same the
+ * web notebook's Export downloads, saved where the Save dialog is pointed.
+ * The dialog proposes `<notebook>.md`; a name ending in `.txt` saves plain
+ * text instead, and one without an extension gets `.md`. The notice names
+ * the path and offers to copy it.
+ */
+async function exportNotebook($: Dollar, folder: string): Promise<void> {
+  try {
+    const [entries, tags, root, now] = await Promise.all([read($, entriesAtom), read($, tagsAtom), notesRootOf($), $.clock.now()])
+    const notes = activeIn(entries, folder).map(entry => ({
+      title: entry.title,
+      type: entry.type,
+      created: new Date(entry.createdAt).toISOString(),
+      fromMessage: entry.sources[0]?.captureMode === 'whole_message',
+      content: entry.content,
+    }))
+    const name = `${slugOf(folder)}.md`
+    const chosen = await chooseSavePath($, `Export ${folder} as markdown (.md) or plain text (.txt)`, name, `${root}/${EXPORTS_DIR}/${name}`)
+    if (chosen === undefined) return
+    const path = /\.[^./]+$/.test(chosen) ? chosen : `${chosen}.md`
+    const text = EXPORT_FORMATS[formatOf(path)].render({ name: folder, tags: tags[folder]?.tags ?? [], notes }, new Date(now).toISOString().slice(0, 10))
+    await $.fs.write(path, text)
+    await setNotice($, { tone: 'ok', text: `Exported ${folder} to ${path}`, copy: path })
+  } catch (error) {
+    await setNotice($, { tone: 'error', text: messageOf(error) })
+  }
 }
 
 async function toggleNotebook($: Dollar, folder: string): Promise<void> {
@@ -250,39 +430,42 @@ async function toggleNotebook($: Dollar, folder: string): Promise<void> {
   )
 }
 
-/** Scrolls the transcript to the message a note was captured from, while it is still drawn. */
-async function viewSource($: Dollar, entryId: string): Promise<void> {
-  const entry = (await read($, entriesAtom)).find(one => one.id === entryId)
-  const messageId = entry?.sources[0]?.messageId
-  if (messageId === undefined) return
-  const result = await $.ui.scroll({ to: { requestId: messageId } })
-  if (result.deny !== undefined) await flashNotice($, { tone: 'error', text: 'That message is not on screen any more' })
+/** A note saved from the chat (it keeps the session it came from), not one written on the web. */
+function isFromChat(entry: NotebookEntry): boolean {
+  const source = entry.sources[0]
+  return source !== undefined && source.sessionId !== undefined && source.snapshot !== ''
 }
 
-async function copyText($: Dollar, text: string, surface: RenderSurface): Promise<void> {
-  const result = await $.ui.copy({ text, surface })
-  await flashNotice($, result.isCopied ? { tone: 'ok', text: 'Copied' } : { tone: 'error', text: 'Nothing to copy to here' })
+/** Whether the title is still the one taken from the first line, so a model's may replace it. */
+function hasDerivedTitle(entry: NotebookEntry): boolean {
+  return entry.title === deriveTitle(entry.content)
 }
 
-/** Asks the model for the note's type (insight, decision, ...); the person can change it later. */
-async function classifyEntry($: Dollar, entryId: string): Promise<void> {
+/**
+ * Asks the model for the note's type (insight, learning, ...) and tags and,
+ * with `withTitle`, a title of at most six words; the person can change any
+ * of them later. A title the person set is never replaced.
+ */
+async function classifyEntry($: Dollar, entryId: string, options: { withTitle?: boolean } = {}): Promise<void> {
   const service = serviceOf($)
   const entry = await service.getById(entryId)
-  if (!entry || entry.type !== 'other' || entry.content.trim() === '') return
+  const withTitle = options.withTitle === true && entry !== undefined && hasDerivedTitle(entry)
+  if (!entry || (entry.type !== 'other' && !withTitle) || entry.content.trim() === '') return
   const result = await $.model.complete({
     model: TAGS_MODEL,
-    prompt: classifyPrompt(entry.title, entry.content),
-    maxTokens: TYPE_MAX_TOKENS,
+    prompt: classifyPrompt(entry.title, entry.content, { withTitle }),
+    maxTokens: withTitle ? TITLED_MAX_TOKENS : TYPE_MAX_TOKENS,
     timeoutMs: TAGS_TIMEOUT_MS,
   })
   if (!result.isAnswered) return
-  const { type, tags } = parseClassification(result.text)
+  const { type, tags, title } = parseClassification(result.text)
   const current = await service.getById(entryId)
   if (!current) return
-  const patch: { type?: EntryType; tags?: string[] } = {}
+  const patch: { type?: EntryType; tags?: string[]; title?: string } = {}
   if (type !== undefined && type !== 'other' && current.type === 'other') patch.type = type
   if (tags.length > 0 && current.tags.length === 0) patch.tags = tags
-  if (patch.type === undefined && patch.tags === undefined) return
+  if (withTitle && title !== undefined && hasDerivedTitle(current)) patch.title = title
+  if (patch.type === undefined && patch.tags === undefined && patch.title === undefined) return
   const updated = await service.update(entryId, patch)
   try {
     await writeNoteFile($, updated)
@@ -290,16 +473,6 @@ async function classifyEntry($: Dollar, entryId: string): Promise<void> {
     /* the file keeps its old front matter; the next export writes it */
   }
   await refreshEntries($)
-}
-
-async function setEntryType($: Dollar, entryId: string, type: EntryType): Promise<void> {
-  try {
-    const updated = await serviceOf($).update(entryId, { type })
-    await writeNoteFile($, updated)
-    await refreshEntries($)
-  } catch (error) {
-    await setNotice($, { tone: 'error', text: messageOf(error) })
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -333,10 +506,23 @@ async function writeNoteFile($: Dollar, entry: NotebookEntry): Promise<NotebookE
 
 async function writeNotebookMeta($: Dollar, folder: string, tags: NotebookTags | undefined): Promise<void> {
   const dir = await notesDirOf($)
+  const path = `${dir}/${folder}/${NOTEBOOK_META_FILE}`
+  // The web's own keys (a pinned or archived notebook) stay.
+  const existing = await readNotebookMeta($, path)
   await $.fs.write(
-    `${dir}/${folder}/${NOTEBOOK_META_FILE}`,
-    JSON.stringify({ name: folder, tags: tags?.tags ?? [], generatedAt: tags?.generatedAt ?? null }, null, 2),
+    path,
+    JSON.stringify({ ...existing, name: folder, tags: tags?.tags ?? [], generatedAt: tags?.generatedAt ?? null }, null, 2),
   )
+}
+
+/** A notebook's meta file as an object; `{}` when there is none or it does not parse. */
+async function readNotebookMeta($: Dollar, path: string): Promise<Record<string, unknown>> {
+  try {
+    const parsed: unknown = JSON.parse(await $.fs.read(path))
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
 }
 
 /** Every entry without a file, or whose file is gone, gets one; every notebook gets its directory. */
@@ -365,13 +551,18 @@ async function scanNoteFiles($: Dollar): Promise<{ files: NoteFile[]; dirs: stri
   }
   for (const entry of top) {
     if (entry.kind !== 'dir' || entry.name.startsWith('.') || entry.name.startsWith('_')) continue
-    dirs.push(entry.name)
     let inner
     try {
       inner = await $.fs.list(`${dir}/${entry.name}`)
     } catch {
+      dirs.push(entry.name)
       continue
     }
+    // A notebook archived on the web is no notebook of the pane's: its directory is left out, so the folder goes;
+    // its files, every one marked archived, still archive their entries.
+    const hasMeta = inner.some(file => file.kind === 'file' && file.name === NOTEBOOK_META_FILE)
+    const isArchived = hasMeta && (await readNotebookMeta($, `${dir}/${entry.name}/${NOTEBOOK_META_FILE}`)).archived === true
+    if (!isArchived) dirs.push(entry.name)
     for (const file of inner) {
       if (file.kind !== 'file' || !file.name.endsWith('.md')) continue
       files.push({ path: `${entry.name}/${file.name}`, folder: entry.name, mtimeMs: file.mtimeMs })
@@ -420,12 +611,13 @@ async function importChanges($: Dollar, options: { force?: boolean } = {}): Prom
       else if (action.kind === 'folder-gone') await service.removeFolder(action.name)
       else if (action.kind === 'archive') await service.archive(action.entryId)
       else if (action.kind === 'update') {
-        const patch: { content?: string; title?: string; file?: string; folder?: string; type?: EntryType } = {}
+        const patch: { content?: string; title?: string; file?: string; folder?: string; type?: EntryType; pinned?: boolean } = {}
         if (action.content !== undefined) patch.content = action.content
         if (action.title !== undefined) patch.title = action.title
         if (action.file !== undefined) patch.file = action.file
         if (action.folder !== undefined) patch.folder = action.folder
         if (action.type !== undefined) patch.type = action.type
+        if (action.pinned !== undefined) patch.pinned = action.pinned
         const updated = await service.update(action.entryId, patch)
         if (updated.type === 'other' && action.content !== undefined) toClassify.push(updated.id)
       } else {
@@ -446,6 +638,7 @@ async function importChanges($: Dollar, options: { force?: boolean } = {}): Prom
         if (action.id !== undefined) input.id = action.id
         if (action.createdAt !== undefined) input.createdAt = action.createdAt
         if (action.type !== undefined) input.type = action.type
+        if (action.pinned !== undefined) input.pinned = action.pinned
         const created = await service.create(input)
         toClassify.push(created.id)
       }
@@ -598,13 +791,39 @@ async function ensureServer($: Dollar): Promise<void> {
   }
 }
 
-async function openWeb($: Dollar, folder?: string): Promise<void> {
+/** Opens the web notebook in the browser, at a note's file when one is named. */
+async function openWeb($: Dollar, file?: string): Promise<void> {
   try {
     const info = await startServer($)
-    const url = folder === undefined ? info.url : `${info.url}/#/${encodeURIComponent(folder)}`
+    const url = file === undefined ? info.url : `${info.url}/#/${encodeURIComponent(file)}`
     const opened = await $.process.run(['open', url], { timeoutMs: 10_000 })
     if (opened.exitCode !== 0) await $.process.run(['xdg-open', url], { timeoutMs: 10_000 })
-    await flashNotice($, { tone: 'ok', text: 'Opened in your browser' })
+    await update($, noticeAtom, current => (current?.tone === 'error' ? null : current ?? null))
+  } catch (error) {
+    await setNotice($, { tone: 'error', text: messageOf(error) })
+  }
+}
+
+/** Edit: the note opens in the web notebook, its file written first if it has none yet. */
+async function editInWeb($: Dollar, entryId: string): Promise<void> {
+  const entry = (await read($, entriesAtom)).find(one => one.id === entryId)
+  if (!entry) return
+  try {
+    const dir = await notesDirOf($)
+    const current = entry.file !== undefined && (await $.fs.exists(`${dir}/${entry.file}`)) ? entry : await writeNoteFile($, entry)
+    await openWeb($, current.file)
+  } catch (error) {
+    await setNotice($, { tone: 'error', text: messageOf(error) })
+  }
+}
+
+/** + Add New Note: an empty note in the last-used notebook, opened in the web notebook to write. */
+async function newNoteInWeb($: Dollar): Promise<void> {
+  try {
+    const [dir, folders, now] = await Promise.all([notesDirOf($), read($, foldersAtom), $.clock.now()])
+    const blank = blankNoteFile(crypto.randomUUID(), folders.last, now)
+    await $.fs.write(`${dir}/${blank.path}`, blank.text)
+    await openWeb($, blank.path)
   } catch (error) {
     await setNotice($, { tone: 'error', text: messageOf(error) })
   }
@@ -625,27 +844,6 @@ async function captureMeta($: Dollar, context?: Pick<CaptureContext, 'before' | 
   const meta: CaptureMeta = { draftId: crypto.randomUUID(), capturedAt, sessionId, folder: folders.last }
   if (context !== undefined) meta.context = { ...context, cwd }
   return meta
-}
-
-async function startCapturePick($: Dollar): Promise<number> {
-  const [messages, rows] = await Promise.all([$.session.messages(), read($, rowsAtom)])
-  const candidates = candidatesFrom(messages, rows)
-  await update($, candidatesAtom, () => candidates)
-  await setNotice($, null)
-  await setView($, { kind: 'pick' })
-  return candidates.length
-}
-
-async function pickCandidate($: Dollar, candidate: MessageCandidate): Promise<void> {
-  const messages = await $.session.messages()
-  const result = draftFromCandidate(candidate, await captureMeta($, contextAround(messages, candidate.index)))
-  if (!result.ok) {
-    await setNotice($, { tone: 'error', text: result.message })
-    return
-  }
-  await update($, draftAtom, () => result.draft)
-  await setNotice($, null)
-  await setView($, { kind: 'confirm' })
 }
 
 async function startExcerptDraft(
@@ -690,66 +888,132 @@ async function setDraftFolder($: Dollar, folder: string): Promise<void> {
   await update($, draftAtom, draft => (draft ? { ...draft, folder } : null))
 }
 
-async function setEditFolder($: Dollar, folder: string): Promise<void> {
-  await update($, editAtom, edit => (edit ? { ...edit, folder } : null))
+async function setDraftTitle($: Dollar, title: string): Promise<void> {
+  await update($, draftAtom, draft => (draft ? { ...draft, title } : null))
 }
 
-/** Creates (or finds) a notebook and selects it in whichever form is open. */
+/** The capture page's type picker changed; undefined (the picker on Other) leaves the type to the model. */
+async function setDraftType($: Dollar, type: EntryType | undefined): Promise<void> {
+  await update($, draftAtom, draft => {
+    if (!draft) return null
+    const { type: _dropped, ...rest } = draft
+    return type === undefined ? rest : { ...rest, type }
+  })
+}
+
+/** Creates (or finds) a notebook and selects it for the capture, if one is open. */
 async function addFolder($: Dollar, name: string): Promise<void> {
   try {
     const record = await serviceOf($).addFolder(name)
     await update($, foldersAtom, () => record)
     await update($, draftAtom, draft => (draft ? { ...draft, folder: record.last } : null))
-    await update($, editAtom, edit => (edit ? { ...edit, folder: record.last } : null))
-    const fromHome = (await read($, namingNotebookAtom)) === true
     await update($, namingNotebookAtom, () => false)
-    await setNotice($, fromHome ? { tone: 'ok', text: `Notebook "${record.last}" created` } : null)
+    // A failed add's error goes; a kept draft's Resume stays, the new notebook now picked for it.
+    if ((await read($, noticeAtom))?.tone === 'error') await setNotice($, null)
     await refreshTags($)
   } catch (error) {
     await setNotice($, { tone: 'error', text: messageOf(error) })
   }
 }
 
-/** A blank note, written in the pane's editor and filed in the last-used notebook. */
-async function startBlankDraft($: Dollar): Promise<void> {
-  const meta = await captureMeta($, { before: [], after: [] })
-  const draft: CaptureDraft = {
-    id: meta.draftId,
-    content: '',
-    folder: meta.folder,
-    source: {
-      captureMode: 'excerpt',
-      role: 'unknown',
-      snapshot: '',
-      capturedAt: meta.capturedAt,
-      sessionId: meta.sessionId,
-      ...(meta.context === undefined ? {} : { context: meta.context }),
-    },
+/**
+ * What the editor posted, for the capture or the edit whose id it names: its
+ * text, the heading under its cursor and its window, each kept only when it
+ * changed (the window redraws nothing), and text for the clipboard.
+ */
+async function acceptEditorPost($: Dollar, post: EditorPost, surface: RenderSurface): Promise<void> {
+  const [draft, edit, heading] = await Promise.all([read($, draftAtom), read($, editAtom), read($, editorHeadingAtom)])
+  if (draft?.id !== post.draftId && edit?.id !== post.draftId) return
+  if (post.clipboard !== undefined) await copyText($, post.clipboard, surface)
+  await update($, editorViewAtom, () => ({ draftId: post.draftId, ...post.view }))
+  if (draft?.id === post.draftId && draft.content !== post.text) {
+    await update($, draftAtom, current => (current && current.id === post.draftId ? { ...current, content: post.text } : current ?? null))
   }
-  await update($, draftAtom, () => draft)
-  await setNotice($, null)
-  await setView($, { kind: 'confirm' })
-  await openForEditing($)
+  if (edit?.id === post.draftId && edit.content !== post.text) {
+    await update($, editAtom, current => (current && current.id === post.draftId ? { ...current, content: post.text } : current ?? null))
+  }
+  if (heading !== post.heading) await update($, editorHeadingAtom, () => post.heading)
 }
 
-/** The editor posted new text: it belongs to the draft or the edit whose id it names. */
-/** What the editor posted: new text, a cursor on another heading level, or text for the clipboard. */
-async function acceptEditorPost($: Dollar, post: EditorPost, surface: RenderSurface): Promise<void> {
-  const [draft, edit] = await Promise.all([read($, draftAtom), read($, editAtom)])
-  if (draft?.id !== post.draftId && edit?.id !== post.draftId) return
-  if (post.type === 'copy' || post.type === 'cut') await copyText($, post.text, surface)
-  if (post.type === 'copy') return
-  if (post.type === 'content' || post.type === 'cut') {
-    const text = post.type === 'content' ? post.text : post.content
-    await update($, draftAtom, current => (current && current.id === post.draftId ? { ...current, content: text } : current ?? null))
-    await update($, editAtom, current => (current && current.id === post.draftId ? { ...current, content: text } : current ?? null))
-  }
-  await update($, editorHeadingAtom, () => post.heading)
+/**
+ * A wheel tick on the editor page scrolls the text while it has more to
+ * show that way; it is handed on to the pane past the text's ends, over the
+ * home column beside the page, over the preview under the editor, and while
+ * the `⋯` menu is open. `row` is the page row under the pointer.
+ *
+ * @returns true when the editor took the tick
+ */
+async function wheelEditor($: Dollar, by: number, column: number, row: number): Promise<boolean> {
+  const [view, isMenuOpen, draft, edit, shown] = await Promise.all([
+    read($, viewAtom),
+    read($, namingNotebookAtom),
+    read($, draftAtom),
+    read($, editAtom),
+    read($, editorViewAtom),
+  ])
+  const editing = view.kind === 'confirm' ? draft : view.kind === 'edit' ? edit : null
+  if (editing === null || isMenuOpen || !isOverPage(column, paneColumns, paneIsDesktop) || row >= editorEndRow) return false
+  if (shown === null || shown.draftId !== editing.id || !canScroll(shown, by)) return false
+  // Moved here at once, so ticks that come before the editor reports stop at the text's end.
+  const top = Math.max(0, Math.min(shown.top + by, shown.total - shown.height))
+  await update($, editorViewAtom, () => ({ ...shown, top }))
+  await update($, editorScrollAtom, total => (total ?? 0) + by)
+  return true
+}
+
+/**
+ * The title editor's post: the title as typed so far, and `submit` on Enter,
+ * which puts the title back in the breadcrumb.
+ */
+async function acceptTitlePost($: Dollar, post: EditorPost, surface: RenderSurface): Promise<void> {
+  const [view, draft, edit] = await Promise.all([read($, viewAtom), read($, draftAtom), read($, editAtom)])
+  const editing = view.kind === 'confirm' ? draft : view.kind === 'edit' ? edit : null
+  if (editing === null || post.draftId !== titleDraftId(editing.id)) return
+  if (post.clipboard !== undefined) await copyText($, post.clipboard, surface)
+  const title = post.text.replace(/\s*\n\s*/g, ' ')
+  if (view.kind === 'confirm' && (draft?.title ?? '') !== title) await setDraftTitle($, title)
+  if (view.kind === 'edit' && edit?.title !== title) await setEditTitle($, title)
+  if (post.submit === true) await endTitleEdit($)
+}
+
+/** The title editor's own draft id, so a note's title and its text never share an editor state. */
+function titleDraftId(editingId: string): string {
+  return `title:${editingId}`
+}
+
+/** The desktop's search editor posts the query as it is typed; Enter adds nothing, the list filters as it goes. */
+async function acceptSearchPost($: Dollar, post: EditorPost, surface: RenderSurface): Promise<void> {
+  if (post.draftId !== searchDraftId(await read($, searchSeedAtom))) return
+  if (post.clipboard !== undefined) await copyText($, post.clipboard, surface)
+  const query = post.text.replace(/\s*\n\s*/g, ' ')
+  if ((await read($, queryAtom)) !== query) await setQuery($, query)
+}
+
+/** The search editor's draft id: a new one whenever the query was set from outside it, so it takes that text. */
+function searchDraftId(seed: number): string {
+  return `search:${seed}`
+}
+
+function isEditorPost(data: unknown): data is EditorPost {
+  if (typeof data !== 'object' || data === null) return false
+  const record = data as Record<string, unknown>
+  const view = record.view as Record<string, unknown> | null | undefined
+  return (
+    typeof record.draftId === 'string' &&
+    typeof record.text === 'string' &&
+    typeof record.heading === 'string' &&
+    (record.clipboard === undefined || typeof record.clipboard === 'string') &&
+    (record.submit === undefined || record.submit === true) &&
+    typeof view === 'object' &&
+    view !== null &&
+    typeof view.top === 'number' &&
+    typeof view.total === 'number' &&
+    typeof view.height === 'number'
+  )
 }
 
 async function cancelDraft($: Dollar): Promise<void> {
   await update($, draftAtom, () => null)
-  await update($, editAtom, () => null)
   await setNotice($, null)
   await setView($, { kind: 'home' })
 }
@@ -773,7 +1037,16 @@ async function confirmSave($: Dollar): Promise<void> {
   }
   await update($, isSavingAtom, () => true)
   try {
-    const entry = await serviceOf($).create({ content: draft.content, folder: draft.folder, source: draft.source })
+    // A title the person typed is theirs, and the model's title does not replace it.
+    const title = (draft.title ?? '').trim()
+    // A type the person picked is kept too: the model types only a note saved without one.
+    const entry = await serviceOf($).create({
+      content: draft.content,
+      folder: draft.folder,
+      source: draft.source,
+      ...(title === '' ? {} : { title }),
+      ...(draft.type === undefined ? {} : { type: draft.type }),
+    })
     let fileNote = ''
     try {
       await writeNoteFile($, entry)
@@ -785,7 +1058,7 @@ async function confirmSave($: Dollar): Promise<void> {
     await flashNotice($, { tone: 'ok', text: `Saved to ${entry.folder}${fileNote}`, open: entry.id })
     await setView($, { kind: 'home' })
     $.ui.toast(`Saved to ${entry.folder}: ${entry.title}`)
-    $.clock.after(1, () => void classifyEntry($, entry.id))
+    $.clock.after(1, () => void classifyEntry($, entry.id, { withTitle: true }))
   } catch (error) {
     await setNotice($, {
       tone: 'error',
@@ -796,37 +1069,61 @@ async function confirmSave($: Dollar): Promise<void> {
   }
 }
 
-/** Opens a note in the editor page; a kept edit of the same note is resumed. */
+/** Opens a note's page in the pane. */
+async function openNote($: Dollar, entryId: string): Promise<void> {
+  if (!(await read($, entriesAtom)).some(one => one.id === entryId)) return
+  await setNotice($, null)
+  await setView($, { kind: 'note', entryId })
+  await showPane($)
+}
+
+/** Edit: the note in the pane's editor; a kept edit of the same note is resumed. */
 async function startEdit($: Dollar, entryId: string): Promise<void> {
   const entry = (await read($, entriesAtom)).find(one => one.id === entryId)
   if (!entry) return
   const kept = await read($, editAtom)
   if (kept?.entryId !== entryId) {
-    await update($, editAtom, () => ({ id: crypto.randomUUID(), entryId, content: entry.content, folder: entry.folder }))
+    await update($, editAtom, () => ({ id: crypto.randomUUID(), entryId, content: entry.content, title: entry.title, type: entry.type, folder: entry.folder }))
   }
   await setNotice($, null)
-  await update($, showSnapshotAtom, () => false)
   await setView($, { kind: 'edit', entryId })
   await openForEditing($)
 }
 
+/** Saves the pane edit to the note and its file, then shows the note again. */
 async function saveEdit($: Dollar): Promise<void> {
   const edit = await read($, editAtom)
   if (!edit) {
     await showHome($)
     return
   }
+  const saved = (await read($, entriesAtom)).find(one => one.id === edit.entryId)
+  // A cleared title goes back to the text's first line; an unchanged one stays derived or the person's own.
+  const title = edit.title.trim() === '' ? deriveTitle(edit.content) : edit.title.trim()
+  const folder = edit.folder !== undefined && edit.folder !== saved?.folder ? edit.folder : undefined
   await update($, isSavingAtom, () => true)
   try {
-    const entry = await serviceOf($).update(edit.entryId, { content: edit.content, folder: edit.folder })
-    let fileNote = ''
+    const patch = {
+      content: edit.content,
+      ...(title !== '' && title !== saved?.title ? { title } : {}),
+      ...(edit.type !== undefined && edit.type !== saved?.type ? { type: edit.type } : {}),
+      ...(folder !== undefined ? { folder } : {}),
+    }
+    const updated = await serviceOf($).update(edit.entryId, patch)
+    // A note moved to another notebook gets its file there, and the one it had goes.
+    const entry = folder !== undefined ? await serviceOf($).setFile(updated.id, relPathFor(updated)) : updated
+    let fileNote: Notice = null
     try {
       await writeNoteFile($, entry)
+      if (saved?.file !== undefined && saved.file !== entry.file) await forgetNoteFile($, saved.file)
     } catch (error) {
-      fileNote = ` (file not written: ${messageOf(error)})`
+      fileNote = { tone: 'error', text: `Saved, but the file was not written: ${messageOf(error)}` }
     }
     await afterChange($)
-    await flashNotice($, { tone: 'ok', text: `Saved changes${fileNote}` })
+    await update($, editAtom, () => null)
+    await setNotice($, fileNote)
+    await setView($, { kind: 'note', entryId: entry.id })
+    await showPane($)
     if (entry.type === 'other') $.clock.after(1, () => void classifyEntry($, entry.id))
   } catch (error) {
     await setNotice($, { tone: 'error', text: `${messageOf(error)} Your changes are still here.` })
@@ -835,15 +1132,18 @@ async function saveEdit($: Dollar): Promise<void> {
   }
 }
 
-/** Drops the changes and leaves the editor page. */
+/** Drops the pane edit and shows the note as saved. */
 async function cancelEdit($: Dollar): Promise<void> {
+  const edit = await read($, editAtom)
   await update($, editAtom, () => null)
   await setNotice($, null)
-  await showHome($)
+  if (edit) await setView($, { kind: 'note', entryId: edit.entryId })
+  else await setView($, { kind: 'home' })
+  await showPane($)
 }
 
 async function armDelete($: Dollar, entryId: string, isDeleteArmed: boolean): Promise<void> {
-  await setView($, { kind: 'edit', entryId, isDeleteArmed })
+  await setView($, { kind: 'note', entryId, isDeleteArmed })
 }
 
 async function archiveEntry($: Dollar, entryId: string): Promise<void> {
@@ -859,12 +1159,27 @@ async function archiveEntry($: Dollar, entryId: string): Promise<void> {
       }
     }
     await afterChange($)
-    await update($, editAtom, () => null)
-    await flashNotice($, { tone: 'ok', text: 'Archived' })
+    await update($, editAtom, edit => (edit?.entryId === entryId ? null : edit ?? null))
+    await setNotice($, null)
     await setView($, { kind: 'home' })
   } catch (error) {
     await setNotice($, { tone: 'error', text: messageOf(error) })
   }
+}
+
+/** Removes a note's file and forgets its mtime; a file that will not go stays, and the next import archives nothing for it since the entry has moved on. */
+async function forgetNoteFile($: Dollar, file: string): Promise<void> {
+  const abs = `${await notesDirOf($)}/${file}`
+  try {
+    await $.process.run(['rm', '-f', abs], { timeoutMs: 5_000 })
+  } catch {
+    /* the file stays */
+  }
+  await update($, knownAtom, known => {
+    const next = { ...(known ?? {}) }
+    delete next[file]
+    return next
+  })
 }
 
 async function deleteEntry($: Dollar, entryId: string): Promise<void> {
@@ -872,22 +1187,10 @@ async function deleteEntry($: Dollar, entryId: string): Promise<void> {
     const service = serviceOf($)
     const entry = await service.getById(entryId)
     await service.delete(entryId)
-    if (entry?.file !== undefined) {
-      const abs = `${await notesDirOf($)}/${entry.file}`
-      try {
-        await $.process.run(['rm', '-f', abs], { timeoutMs: 5_000 })
-      } catch {
-        /* the file stays; the next import archives nothing since the entry is gone */
-      }
-      await update($, knownAtom, known => {
-        const next = { ...(known ?? {}) }
-        delete next[entry.file ?? '']
-        return next
-      })
-    }
+    if (entry?.file !== undefined) await forgetNoteFile($, entry.file)
     await afterChange($)
-    await update($, editAtom, () => null)
-    await flashNotice($, { tone: 'ok', text: 'Deleted' })
+    await update($, editAtom, edit => (edit?.entryId === entryId ? null : edit ?? null))
+    await setNotice($, null)
     await setView($, { kind: 'home' })
   } catch (error) {
     await setNotice($, { tone: 'error', text: messageOf(error) })
@@ -896,44 +1199,39 @@ async function deleteEntry($: Dollar, entryId: string): Promise<void> {
 
 function actionsOf($: Dollar): PaneActions {
   return {
-    search: query => void setQuery($, query),
+    search: query => void setQueryFromOutside($, query),
     filterType: type => void setTypeFilter($, type),
     toggleNewNotebook: () => void toggleNewNotebook($),
+    toggleMenu: () => void toggleMenu($),
     toggleNotebook: folder => void toggleNotebook($, folder),
+    exportNotebook: folder => void exportNotebook($, folder),
     dismissNotice: () => void setNotice($, null),
+    copy: (text, surface) => void copyText($, text, surface),
     home: () => void showHome($),
-    newNote: () => void startBlankDraft($),
-    openWeb: folder => void openWeb($, folder),
-    pick: candidate => void pickCandidate($, candidate),
+    newNote: () => void newNoteInWeb($),
     setDraftFolder: folder => void setDraftFolder($, folder),
+    setDraftTitle: title => void setDraftTitle($, title),
+    beginTitleEdit: () => void beginTitleEdit($),
+    endTitleEdit: () => void endTitleEdit($),
+    setDraftType: type => void setDraftType($, type),
     addFolder: name => void addFolder($, name),
     format: kind => void formatEditor($, kind),
     save: () => void confirmSave($),
     cancel: () => void cancelDraft($),
     resume: () => void resumeEditing($),
-    open: entryId => void startEdit($, entryId),
-    setType: (entryId, type) => void setEntryType($, entryId, type),
-    toggleSnapshot: () => void toggleSnapshot($),
-    viewSource: entryId => void viewSource($, entryId),
-    copy: (text, surface) => void copyText($, text, surface),
-    setEditFolder: folder => void setEditFolder($, folder),
+    open: entryId => void openNote($, entryId),
+    edit: entryId => void startEdit($, entryId),
+    openInWeb: entryId => void editInWeb($, entryId),
     saveEdit: () => void saveEdit($),
+    setEditTitle: title => void setEditTitle($, title),
+    setEditType: type => void setEditType($, type),
+    setEditFolder: folder => void setEditFolder($, folder),
+    togglePreview: () => void togglePreview($),
     cancelEdit: () => void cancelEdit($),
     archive: entryId => void archiveEntry($, entryId),
     armDelete: (entryId, isArmed) => void armDelete($, entryId, isArmed),
     remove: entryId => void deleteEntry($, entryId),
   }
-}
-
-function isEditorPost(data: unknown): data is EditorPost {
-  if (typeof data !== 'object' || data === null) return false
-  const record = data as Record<string, unknown>
-  if (typeof record.draftId !== 'string') return false
-  if (record.type === 'copy') return typeof record.text === 'string'
-  if (typeof record.heading !== 'string') return false
-  if (record.type === 'cursor') return true
-  if (record.type === 'content') return typeof record.text === 'string'
-  return record.type === 'cut' && typeof record.text === 'string' && typeof record.content === 'string'
 }
 
 // ---------------------------------------------------------------------------
@@ -966,6 +1264,21 @@ export const register: Register = on => {
     } finally {
       await update($, isLoadingAtom, () => false)
     }
+    // Notes saved from the chat before titles came from the model get one, once.
+    const untitled = (await read($, entriesAtom)).filter(one => one.status === 'confirmed' && isFromChat(one) && hasDerivedTitle(one))
+    if (untitled.length > 0) {
+      $.clock.after(1, () => void (async () => {
+        for (const one of untitled) await classifyEntry($, one.id, { withTitle: true })
+      })())
+    }
+    try {
+      const theme = (await $.config.list()).find(row => row.key === 'theme')
+      isDarkTheme = typeof theme?.value === 'string' && theme.value.startsWith('dark')
+    } catch {
+      /* light, the default */
+    }
+    // The desktop app starts the engine through the SDK, which reports no surface yet; only the REPL says terminal.
+    if (e.surface !== 'terminal') isMacDark = await readMacAppearance($)
     $.clock.every(IMPORT_EVERY_MS, () => void importChanges($))
     $.clock.after(1, () => void ensureServer($))
     return next(e)
@@ -1023,15 +1336,12 @@ export const register: Register = on => {
           ? 'Review the selected text in the Live Notebook pane, then press Save.'
           : 'The selection cannot be saved; see the pane.'
       } else {
-        const count = await startCapturePick($)
-        text =
-          count === 0
-            ? 'No messages to pick from yet. Type /save followed by the text to save an excerpt.'
-            : 'Pick a message in the Live Notebook pane, then press Save.'
+        // Nothing to save: no pane, a hint. A whole reply is saved with the control under it.
+        return { text: 'Select text in the conversation, or type /save followed by the text to save. A whole reply is saved with the Save to notebook control under it.' }
       }
     }
     if ((await read($, viewAtom)).kind === 'confirm') await openForEditing($)
-    else await $.ui.open({ id: PANE, title: TITLE, focus: true })
+    else await showPane($)
     return { text }
   })
 
@@ -1044,16 +1354,38 @@ export const register: Register = on => {
     }
     // Not setQuery: opening the pane keeps a standing notice (an unreadable store record).
     await update($, queryAtom, () => args)
+    await update($, searchSeedAtom, seed => (seed ?? 0) + 1)
     await setView($, { kind: 'home' })
     await $.ui.open({ id: PANE, title: TITLE, focus: true })
     return { text: args === '' ? 'Live Notebook opened.' : `Live Notebook opened, searching for "${args}".` }
   })
 
-  // The content editor posts its text after every change, the heading under
-  // its cursor, and what a copy or cut puts on the clipboard.
+  // The capture editor posts its text, the heading under its cursor and its
+  // window after every change, and what a copy or cut puts on the clipboard.
   on('ui.message', { element: EDITOR_KEY }, async ($, e, next) => {
     if (isEditorPost(e.data)) await acceptEditorPost($, e.data, e.surface)
     return next(e)
+  })
+
+  // The breadcrumb's title, while it is being edited, posts the same way.
+  on('ui.message', { element: TITLE_EDITOR_KEY }, async ($, e, next) => {
+    if (isEditorPost(e.data)) await acceptTitlePost($, e.data, e.surface)
+    return next(e)
+  })
+
+  // So does the desktop's search field.
+  on('ui.message', { element: SEARCH_EDITOR_KEY }, async ($, e, next) => {
+    if (isEditorPost(e.data)) await acceptSearchPost($, e.data, e.surface)
+    return next(e)
+  })
+
+  // The wheel over the capture page scrolls its text, which the editor draws
+  // in a window of its own; the pane keeps still while it does.
+  on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    if (e.origin.kind !== 'person' || e.pointer === undefined || e.by === 0) return next(e)
+    // The page row under the pointer: the window's first row as it is now, plus the pointer's row in it.
+    const row = Math.max(0, e.offset - e.by) + e.pointer.row
+    return (await wheelEditor($, e.by, e.pointer.column, row)) ? {} : next(e)
   })
 
   // A `Save to notebook` control under every assistant reply block. Summary
@@ -1077,48 +1409,93 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const [view, entries, draft, edit, folders, server, candidates, query, notice, currentSessionId] =
-      await Promise.all([
-        read($, viewAtom),
-        read($, entriesAtom),
-        read($, draftAtom),
-        read($, editAtom),
-        read($, foldersAtom),
-        read($, serverAtom),
-        read($, candidatesAtom),
-        read($, queryAtom),
-        read($, noticeAtom),
-        $.session.id(),
-      ])
-    const [typeFilter, isNamingNotebook, isLoading, isSaving, showSnapshot, notesRoot, collapsed, editorCommand, editorHeading] =
-      await Promise.all([
-        read($, typeFilterAtom),
-        read($, namingNotebookAtom),
-        read($, isLoadingAtom),
-        read($, isSavingAtom),
-        read($, showSnapshotAtom),
-        read($, notesRootAtom),
-        read($, collapsedAtom),
-        read($, editorCommandAtom),
-        read($, editorHeadingAtom),
-      ])
+    const [view, entries, draft, edit, folders, server, query, notice] = await Promise.all([
+      read($, viewAtom),
+      read($, entriesAtom),
+      read($, draftAtom),
+      read($, editAtom),
+      read($, foldersAtom),
+      read($, serverAtom),
+      read($, queryAtom),
+      read($, noticeAtom),
+    ])
+    const [typeFilter, isNamingNotebook, isMenuOpen, isEditingTitle, isLoading, isSaving, notesRoot, collapsed] = await Promise.all([
+      read($, typeFilterAtom),
+      read($, namingNotebookAtom),
+      read($, menuOpenAtom),
+      read($, titleEditingAtom),
+      read($, isLoadingAtom),
+      read($, isSavingAtom),
+      read($, notesRootAtom),
+      read($, collapsedAtom),
+    ])
+    const [editorCommand, editorHeading, editorScroll, previewHidden] = await Promise.all([
+      read($, editorCommandAtom),
+      read($, editorHeadingAtom),
+      read($, editorScrollAtom),
+      read($, previewHiddenAtom),
+    ])
+    paneColumns = e.props.bodyColumns
+    paneIsDesktop = e.surface === 'desktop'
     const bodyRows = e.props.scroll?.bodyRows ?? 0
-    const editorRows = Math.max(EDITOR_MIN_ROWS, bodyRows - EDITOR_CHROME_ROWS)
     if (e.surface === 'mobile') return renderReadOnlyPane($.ui.resolve(e), entries)
 
-    // The editor is a Client; its module path must be a literal in this file.
+    // A capture before it is saved, or a saved note after Edit, is edited in
+    // the pane; the editor is a Client, whose module path must be a literal here.
     let editor: RenderElement | undefined
+    let titleEditor: RenderElement | undefined
     const editing = view.kind === 'confirm' ? draft : view.kind === 'edit' ? edit : null
+    editorEndRow = Number.POSITIVE_INFINITY
     if (editing && e.surface !== 'vscode') {
       const { Client } = $.ui.resolve(e)
+      // The editor fills the page's rows; with the preview showing, it takes half of them and the preview the rest.
+      const free = bodyRows - EDITOR_CHROME_ROWS - TITLE_FIELD_ROWS
+      const rows = previewHidden
+        ? Math.max(EDITOR_MIN_ROWS, free)
+        : Math.max(EDITOR_MIN_ROWS_WITH_PREVIEW, Math.floor((free - PREVIEW_CHROME_ROWS) / 2))
+      if (!previewHidden) editorEndRow = EDITOR_TOP_ROWS + TITLE_FIELD_ROWS + rows
       const props: EditorProps = {
         draftId: editing.id,
         text: editing.content,
         command: editorCommand,
-        columns: editorColumns(e.props.bodyColumns),
-        rows: editorRows,
+        columns: editorColumns(e.props.bodyColumns, e.surface === 'desktop'),
+        rows,
+        scroll: editorScroll,
       }
-      editor = <Client key={EDITOR_KEY} module="./ui/editor.ts" props={props} width="100%" height={editorRows} />
+      // No height: the region is as tall as the rows the editor draws (`rows`).
+      editor = <Client key={EDITOR_KEY} module="./ui/editor.ts" props={props} width="100%" />
+      if (isEditingTitle) {
+        // The breadcrumb's title, pressed: a one-row editor over the title typed so far; empty, it shows the title
+        // the note has now (its own, or the one derived from its text) as a placeholder.
+        const entry = view.kind === 'edit' ? entries.find(one => one.id === editing.id) : undefined
+        const typed = view.kind === 'confirm' ? draft?.title ?? '' : edit?.title ?? ''
+        const shown = typed.trim() !== '' ? typed : entry?.title ?? (editing.content.trim() === '' ? 'Untitled' : deriveTitle(editing.content))
+        const titleProps: EditorProps = {
+          draftId: titleDraftId(editing.id),
+          text: typed,
+          placeholder: shown,
+          columns: Math.max(10, editorColumns(e.props.bodyColumns, e.surface === 'desktop') - (editing.folder ?? entry?.folder ?? "").length - 6),
+          rows: 1,
+          singleLine: true,
+        }
+        titleEditor = <Client key={TITLE_EDITOR_KEY} module="./ui/editor.ts" props={titleProps} width="100%" />
+      }
+    }
+
+    // On a desktop the search field is the mod's own one-row editor: the surface's Input would draw an Enter
+    // button beside it that a mod can only name, not drop.
+    let searchEditor: RenderElement | undefined
+    if (e.surface === 'desktop') {
+      const { Client } = $.ui.resolve(e)
+      const searchProps: EditorProps = {
+        draftId: searchDraftId(await read($, searchSeedAtom)),
+        text: query,
+        placeholder: 'Search notes…',
+        columns: Math.max(10, e.props.bodyColumns - 6),
+        rows: 1,
+        singleLine: true,
+      }
+      searchEditor = <Client key={SEARCH_EDITOR_KEY} module="./ui/editor.ts" props={searchProps} width="100%" />
     }
 
     try {
@@ -1126,28 +1503,31 @@ export const register: Register = on => {
         $.ui.resolve(e),
         {
           surface: e.surface,
-            view,
+          view,
           entries,
           draft,
           edit,
           folders,
           server,
-          candidates,
           query,
           typeFilter,
           notice,
           isNamingNotebook,
+          isMenuOpen,
+          isEditingTitle,
           isLoading,
           isSaving,
-          showSnapshot,
           collapsed,
           notesRoot,
           width: e.props.bodyColumns,
           rows: bodyRows,
-          editorRows,
+          hoverColor: isDarkSurface(e.surface) ? HOVER_DARK : HOVER_LIGHT,
+          isDark: isDarkSurface(e.surface),
           editorHeading,
-          currentSessionId,
+          isPreviewShown: !previewHidden,
           ...(editor === undefined ? {} : { editor }),
+          ...(titleEditor === undefined ? {} : { titleEditor }),
+          ...(searchEditor === undefined ? {} : { searchEditor }),
         },
         actionsOf($),
       )

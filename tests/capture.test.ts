@@ -2,7 +2,6 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import type { AppendedRow } from '../types'
 import {
-  candidatesFrom,
   contextAround,
   draftFromCandidate,
   draftFromExcerpt,
@@ -12,30 +11,6 @@ import {
 } from '../hooks/capture'
 
 const meta = { draftId: 'd-1', capturedAt: 123, sessionId: 'session-1', folder: 'General' }
-
-describe('candidatesFrom', () => {
-  test('lists the newest messages with text first and attaches a matched row id', async () => {
-    const messages = [
-      { role: 'user' as const, text: 'first question' },
-      { role: 'assistant' as const, text: '' },
-      { role: 'assistant' as const, text: 'the answer' },
-      { role: 'user' as const, text: 'thanks' },
-    ]
-    const rows: AppendedRow[] = [
-      { uuid: 'u-1', role: 'user', ...fingerprint('first question') },
-      { uuid: 'a-1', role: 'assistant', ...fingerprint('the answer') },
-    ]
-    const candidates = candidatesFrom(messages, rows)
-    expect(candidates.map(c => c.text)).toEqual(['thanks', 'the answer', 'first question'])
-    expect(candidates[1]?.messageId).toBe('a-1')
-    expect(candidates[0]?.messageId).toBeUndefined()
-  })
-
-  test('honours the limit', async () => {
-    const messages = Array.from({ length: 30 }, (_, i) => ({ role: 'user' as const, text: `m${i}` }))
-    expect(candidatesFrom(messages, [], 5).map(c => c.text)).toEqual(['m29', 'm28', 'm27', 'm26', 'm25'])
-  })
-})
 
 describe('matchRow', () => {
   test('matches only one unambiguous row of the same role', async () => {

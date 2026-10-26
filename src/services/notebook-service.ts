@@ -46,6 +46,7 @@ export class NotebookService {
       updatedAt: at,
     }
     if (input.file !== undefined) entry.file = input.file
+    if (input.pinned === true) entry.pinned = true
     await this.deps.repository.write(entry)
     if (input.keepLastFolder !== true) await this.rememberFolder(folder)
     return entry
@@ -85,6 +86,8 @@ export class NotebookService {
     if (patch.type !== undefined) next.type = patch.type
     if (patch.tags !== undefined) next.tags = [...patch.tags]
     if (patch.file !== undefined) next.file = patch.file
+    if (patch.pinned === true) next.pinned = true
+    else if (patch.pinned === false) delete next.pinned
     next.updatedAt = await this.deps.now()
     await this.deps.repository.write(next)
     if (patch.folder !== undefined) await this.rememberFolder(next.folder)
