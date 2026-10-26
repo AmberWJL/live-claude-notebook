@@ -36,12 +36,12 @@
           },
           {
             "@type": "VideoObject",
-            "name": "Live Notebook in 38 seconds",
-            "description": "In Claude Code desktop, an answer scrolls away; the Save to notebook button under it keeps it as a Markdown file; every session feeds one local folder; search finds it again.",
+            "name": "Live Notebook in 50 seconds",
+            "description": "In Claude Code desktop, an answer scrolls away; the Save to notebook button under it keeps it as a Markdown file. A student keeps every explanation in course notebooks, adds their own notes, writes new ones and exports a notebook as one Markdown file.",
             "thumbnailUrl": "https://amberwjl.github.io/live-claude-notebook/media/live-notebook-poster.jpg",
             "contentUrl": "https://amberwjl.github.io/live-claude-notebook/media/live-notebook.mp4",
             "uploadDate": "2026-10-26",
-            "duration": "PT38.5S"
+            "duration": "PT52.5S"
           }
         ]
       }
@@ -61,7 +61,7 @@
     </div>
 
     <main>
-      <section class="stage" aria-label="Live Notebook in 38 seconds">
+      <section class="stage" aria-label="Live Notebook in 50 seconds">
         <div class="screen">
           <video
             id="film"
@@ -96,7 +96,7 @@
         <section class="pitch">
           <h1>Keep the answers worth keeping.</h1>
           <p class="lede">
-            Live Notebook lives right inside Claude Code desktop: a Save to notebook button under every reply keeps it as a Markdown note on your own computer, and a pane beside the chat finds it again in a second. No account, no cloud.
+            Live Notebook lives right inside Claude Code desktop: a Save to notebook button under every reply keeps it as a Markdown note on your own computer, and a pane beside the chat finds it again in a second. Learning with Claude? Every explanation becomes a study note you can edit, add your own notes to, and export as one file. No account, no cloud.
           </p>
         </section>
 
@@ -118,8 +118,10 @@
             <li>In Claude Code desktop, Claude explains how to retry payment timeouts with backoff, and then the conversation scrolls on and the answer is gone.</li>
             <li>Rewound, there is a Save to notebook button under the reply. One click opens the Live Notebook pane beside the chat with the reply ready; Save keeps it.</li>
             <li>It is saved as a plain Markdown file with a little front matter: title, notebook, type, tags.</li>
-            <li>Notes from every Claude Code session land in the same folder, <code>~/.claude/live-notebook/notes</code>, sorted into notebooks.</li>
+            <li>A student learning with Claude saves each explanation (recursion, binary search, Big-O) into course notebooks such as Algorithms, Data structures and Exam prep, all in <code>~/.claude/live-notebook/notes</code>.</li>
             <li>Searching for "retry" finds the note at once and opens it in the web notebook.</li>
+            <li>In the web notebook, the student adds their own line to a saved explanation ("My note: it only works on a sorted array"), then presses New Note and explains recursion in their own words.</li>
+            <li>Export on the Algorithms notebook saves the whole notebook as one Markdown file, algorithms.md: a study guide to share, print or revise from.</li>
             <li>No account, no cloud: just Markdown files on your computer, to open in any editor, back up or keep in git.</li>
             <li>The soundtrack is music and sound effects only, synthesized for the film; there is no speech.</li>
           </ol>
@@ -158,7 +160,7 @@
         film.addEventListener('play', show)
         film.addEventListener('pause', show)
         film.addEventListener('timeupdate', () => {
-          progress.style.width = `${(film.currentTime / (film.duration || 38.5)) * 100}%`
+          progress.style.width = `${(film.currentTime / (film.duration || 52.5)) * 100}%`
         })
         toggle.addEventListener('click', () => (film.paused ? film.play() : film.pause()))
         // Muted until asked: browsers only autoplay silent video, and sound should be the visitor's choice.
