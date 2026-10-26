@@ -30,7 +30,7 @@ function notebooksAt(frame: number, scene: 'yours' | 'export'): Notebook[] {
     {
       name: 'Algorithms',
       rows: [
-        ...(isNew ? [{ title: newTitle, preview: scene === 'export' || frame >= Y.bodyAt ? 'Trace binary search by hand…' : '—', glyph: '•', isOpen: openNew, isNew: true }] : []),
+        ...(isNew ? [{ title: newTitle, preview: scene === 'export' || frame >= Y.bodyAt ? Y.body.split('\n')[0] : '—', glyph: '•', isOpen: openNew, isNew: true }] : []),
         { title: 'Binary search', preview: BINARY, glyph: LEARNING, isOpen: scene === 'yours' && !openNew },
         { title: 'Recursion needs a base case', preview: 'A recursive function must stop: the base case returns without calling itself…', glyph: LEARNING },
         { title: 'Big-O of common loops', preview: 'One loop over n items is O(n); a loop inside a loop is O(n²)…', glyph: LEARNING },
@@ -87,7 +87,22 @@ const Toolbar: React.FC = () => (
   </div>
 )
 
-/** Markdown as the editor shows it: a quote with its bar, a task list with boxes, the rest as text. */
+/** `code` spans as the editor shows them; a span still being typed shows as code from its opening tick. */
+const Inline: React.FC<{ text: string }> = ({ text }) => (
+  <>
+    {text.split('`').map((part, i) =>
+      i % 2 === 1 ? (
+        <code key={i} style={{ padding: '2px 8px', borderRadius: 6, background: '#efeee9', fontFamily: MONO, fontSize: '0.86em', color: '#c4643f' }}>
+          {part}
+        </code>
+      ) : (
+        <React.Fragment key={i}>{part}</React.Fragment>
+      ),
+    )}
+  </>
+)
+
+/** Markdown as the editor shows it: a quote with its bar, a task list with boxes, inline code, the rest as text. */
 const Rendered: React.FC<{ text: string; caretAt?: number }> = ({ text, caretAt }) => (
   <>
     {text.split('\n').map((line, i, lines) => {
@@ -115,7 +130,7 @@ const Rendered: React.FC<{ text: string; caretAt?: number }> = ({ text, caretAt 
       }
       return (
         <div key={i} style={{ marginTop: i === 0 ? 0 : 10 }}>
-          {line}
+          <Inline text={line} />
           {caret}
         </div>
       )
@@ -221,9 +236,8 @@ const EXPORTED = [
   '#algorithms #cs-201',
   '_Exported from Live Notebook on 2026-10-26 · 4 notes_',
   '---',
-  '## Exam checklist',
-  '- [ ] Trace binary search by hand',
-  '- [ ] Write the base case first',
+  `## ${Y.title}`,
+  ...Y.body.split('\n'),
   '---',
   '## Binary search',
   '_learning · created 2026-10-21 · from a message_',
@@ -269,7 +283,7 @@ export const Export: React.FC = () => {
         <Sidebar notebooks={notebooksAt(frame, 'export')} exportHover={ease(frame, X.hover - 4, X.hover + 4)} exportPressed={frame >= X.click && frame < X.click + 6} />
         <div style={{ position: 'absolute', left: SIDE + 90, right: 90, top: BAR + 44 }}>
           <div style={{ fontSize: 15, letterSpacing: '0.1em', color: W.muted }}>ALGORITHMS</div>
-          <div style={{ marginTop: 6, fontSize: 46, fontWeight: 750, letterSpacing: '-0.02em' }}>Exam checklist</div>
+          <div style={{ marginTop: 6, fontSize: 46, fontWeight: 750, letterSpacing: '-0.02em' }}>{Y.title}</div>
           <div style={{ margin: '12px 0 16px', fontSize: 17, color: W.muted }}>Created today</div>
           <Toolbar />
           <div style={{ marginTop: 26, fontSize: 25, lineHeight: 1.55 }}>

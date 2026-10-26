@@ -41,7 +41,7 @@
             "thumbnailUrl": "https://amberwjl.github.io/live-claude-notebook/media/live-notebook-poster.jpg",
             "contentUrl": "https://amberwjl.github.io/live-claude-notebook/media/live-notebook.mp4",
             "uploadDate": "2026-10-26",
-            "duration": "PT51.5S"
+            "duration": "PT52.5S"
           }
         ]
       }
@@ -120,7 +120,7 @@
             <li>It is saved as a plain Markdown file with a little front matter: title, notebook, type, tags.</li>
             <li>A student learning with Claude saves each explanation (recursion, binary search, Big-O) into course notebooks such as Algorithms, Data structures and Exam prep, all in <code>~/.claude/live-notebook/notes</code>.</li>
             <li>Searching for "retry" finds the note at once and opens it in the web notebook.</li>
-            <li>In the web notebook, the student adds their own line to a saved explanation ("My note: it only works on a sorted array"), then presses New Note and writes an exam checklist from scratch.</li>
+            <li>In the web notebook, the student adds their own line to a saved explanation ("My note: it only works on a sorted array"), then presses New Note and explains recursion in their own words.</li>
             <li>Export on the Algorithms notebook saves the whole notebook as one Markdown file, algorithms.md: a study guide to share, print or revise from.</li>
             <li>No account, no cloud: just Markdown files on your computer, to open in any editor, back up or keep in git.</li>
             <li>The soundtrack is music and sound effects only, synthesized for the film; there is no speech.</li>
@@ -160,7 +160,7 @@
         film.addEventListener('play', show)
         film.addEventListener('pause', show)
         film.addEventListener('timeupdate', () => {
-          progress.style.width = `${(film.currentTime / (film.duration || 51.5)) * 100}%`
+          progress.style.width = `${(film.currentTime / (film.duration || 52.5)) * 100}%`
         })
         toggle.addEventListener('click', () => (film.paused ? film.play() : film.pause()))
         // Muted until asked: browsers only autoplay silent video, and sound should be the visitor's choice.

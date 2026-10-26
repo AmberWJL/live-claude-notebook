@@ -9,7 +9,7 @@ export const SCENES = [
   ['desktop', 495],
   ['sources', 180],
   ['find', 150],
-  ['yours', 225],
+  ['yours', 255],
   ['export', 195],
   ['local', 150],
   ['end', 150],
@@ -52,13 +52,14 @@ export const typingFrames = (text, cps) => Math.ceil((text.length / cps) * FPS)
 
 /**
  * Make it yours: a line of one's own added to a note saved from a reply,
- * then a new note written from scratch. Each step starts when the last ends.
+ * then a new note written from scratch, the idea explained back in one's own
+ * words. Each step starts when the last ends.
  */
 export const YOURS = (() => {
   const added = '> My note: it only works on a sorted array, so check that first.'
-  const title = 'Exam checklist'
-  const body = '- [ ] Trace binary search by hand\n- [ ] Write the base case first\n- [ ] Big-O of nested loops'
-  const cps = { added: 34, title: 28, body: 44 }
+  const title = 'Recursion, in my own words'
+  const body = 'A function that solves a problem by calling itself on a smaller piece of it.\nIt needs a base case to stop: `factorial(0) = 1`.'
+  const cps = { added: 34, title: 32, body: 48 }
   const clickInto = 24
   const addAt = 30
   const saved = addAt + typingFrames(added, cps.added) + 4
