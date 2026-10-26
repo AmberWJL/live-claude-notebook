@@ -34,6 +34,33 @@ npm run test:node
 guards against other sites. CI (`.github/workflows/ci.yml`) runs it on
 macOS, Windows and Linux.
 
+## The home page film
+
+`video/` is a [Remotion](https://www.remotion.dev) project (React, rendered
+to MP4) for the film on the home page: Claude Code desktop with the Save to
+notebook button and the Live Notebook pane, drawn in the app's layout with
+made-up sessions and messages. Its scenes are in `video/src/scenes/`, and
+`video/src/cues.mjs` says when everything happens.
+
+The soundtrack is synthesized by `video/scripts/soundtrack.mjs` from the same
+cues (no samples or licensed music): a pad and bass in D, a soft pulse in the
+middle, and sound effects on the clicks, the chime when a note is saved, the
+key ticks and the notes landing in the folder. Change a cue and both the
+picture and the sound move. The film plays it with `<Html5Audio>`, and the
+render mixes it in as AAC.
+
+```bash
+cd video && npm install
+npm run studio   # synthesize the soundtrack, then preview and scrub in the browser
+npm run render   # docs/media/live-notebook.mp4, with sound
+npm run poster   # docs/media/live-notebook-poster.jpg
+```
+
+Remotion downloads its own headless Chrome the first time; add
+`--browser-executable="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"`
+to use the installed one. Remotion is free for individuals and companies
+of up to three people; larger companies need its company license.
+
 `claude plugin test` needs Claude Code 2.1.293 or newer. To run a working
 copy without installing it, add the folder as a marketplace and install from
 it: `claude plugin marketplace add <folder>` then `claude plugin install
