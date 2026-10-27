@@ -1,7 +1,7 @@
 import type { FoldersRecord, NotebookEntry, NotebookTags } from '../types'
 import { NotebookError, messageOf } from '../domain/errors'
 import { SCHEMA_VERSION, validateEntry, validateFolders } from '../domain/notebook-entry'
-import type { NotebookRepository, ReadAllResult } from './notebook-repository'
+import { sameRecord, type NotebookRepository, type ReadAllResult } from './notebook-repository'
 
 /**
  * The shape of `$.store`: the plugin's own JSON key-value store, kept by the
@@ -98,6 +98,18 @@ export class HostStoreNotebookRepository implements NotebookRepository {
     }
   }
 
+  /**
+   * Re-reads the entry just before the write and writes only if it is still
+   * the one the caller read. Each `$.store.set` is atomic across sessions;
+   * the read and the set together are not, so a session also holds the
+   * store lock around the whole read-modify-write (see `store-lock.mjs`).
+   */
+  async writeIf(entry: NotebookEntry, expected: NotebookEntry | undefined): Promise<boolean> {
+    if (!sameRecord(await this.read(entry.id), expected)) return false
+    await this.write(entry)
+    return true
+  }
+
   async remove(id: string): Promise<void> {
     try {
       await this.store.delete(keyOf(id))
@@ -120,6 +132,12 @@ export class HostStoreNotebookRepository implements NotebookRepository {
     } catch (error) {
       throw new NotebookError('storage', `Saving the folders failed: ${messageOf(error)}`)
     }
+  }
+
+  async writeFoldersIf(record: FoldersRecord, expected: FoldersRecord): Promise<boolean> {
+    if (!sameRecord(await this.readFolders(), expected)) return false
+    await this.writeFolders(record)
+    return true
   }
 
   async readTags(): Promise<Record<string, NotebookTags>> {

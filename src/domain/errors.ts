@@ -5,6 +5,7 @@ export type NotebookErrorCode =
   | 'storage'
   | 'malformed'
   | 'invalid'
+  | 'conflict'
 
 export class NotebookError extends Error {
   constructor(

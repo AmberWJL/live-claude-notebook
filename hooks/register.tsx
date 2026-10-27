@@ -25,6 +25,7 @@ import type {
 import { NotebookError, messageOf } from '../src/domain/errors'
 import { defaultFolders } from '../src/domain/notebook-entry'
 import { aiModeOf, isNoteId, parseSourceFile, projectNameOf, sourcePathFor, type AiMode } from '../src/core/note-format.mjs'
+import { STORE_LOCK_DIR, STORE_LOCK_SCRIPT, withStoreLock } from '../src/core/store-lock.mjs'
 import { classifyPrompt, parseClassification } from '../src/services/classify'
 import { EXPORT_FORMATS, formatOf } from '../src/services/export-markdown.mjs'
 import { deriveTitle } from '../src/utils/normalize-content'
@@ -149,6 +150,8 @@ let editorEndRow = Number.POSITIVE_INFINITY
 
 /** The node binary, once found (`nodeBinary`). */
 let nodePath: string | undefined
+/** Where sessions take turns writing the store (`storeLockDirOf`), once found. */
+let storeLockDir: string | undefined
 /** Whether the terminal theme (the engine's `theme` row, dark by default) is a dark one, read at session start. */
 let isDarkTheme = false
 /** Whether the Mac's appearance, which the desktop app follows, is dark; read at a desktop session's start, null when unknown. */
@@ -236,7 +239,44 @@ function serviceOf($: Dollar): NotebookService {
     repository: repositoryOf($),
     newId: () => crypto.randomUUID(),
     now: () => hostNow($),
+    lock: work => holdStoreLock($, work),
   })
+}
+
+/**
+ * Runs `work` while no other session writes the store: every session on this
+ * machine shares it, and a read-modify-write is two store calls. The lock is
+ * a directory under the home folder's `.claude/live-notebook`, whatever the
+ * notes root, since the store is shared whatever the notes root. Without
+ * node, `work` runs unlocked on the service's re-check alone.
+ */
+async function holdStoreLock<T>($: Dollar, work: () => Promise<T>): Promise<T> {
+  let node: string
+  let dir: string
+  try {
+    if (nodePath === undefined) nodePath = await nodeBinary($)
+    node = nodePath
+    dir = await storeLockDirOf($)
+  } catch {
+    return work()
+  }
+  return withStoreLock(
+    {
+      dir,
+      run: args => hostRun($, [node, '-e', STORE_LOCK_SCRIPT, ...args], { timeoutMs: 5_000 }),
+      sleep: ms => $.clock.sleep(ms),
+      newToken: () => crypto.randomUUID(),
+    },
+    work,
+  )
+}
+
+async function storeLockDirOf($: Dollar): Promise<string> {
+  if (storeLockDir !== undefined) return storeLockDir
+  const [home, profile] = await Promise.all([$.env.get('HOME'), $.env.get('USERPROFILE')])
+  const base = [home, profile].find(one => one !== undefined && one !== '') ?? '.'
+  storeLockDir = `${base}/.claude/live-notebook/${STORE_LOCK_DIR}`
+  return storeLockDir
 }
 
 function textOf(content: readonly { type: string }[]): string {
@@ -522,14 +562,16 @@ async function classifyEntry($: Dollar, entryId: string, options: { withTitle?: 
   })
   if (!result.isAnswered) return
   const { type, tags, title } = parseClassification(result.text)
-  const current = await service.getById(entryId)
-  if (!current) return
-  const patch: { type?: EntryType; tags?: string[]; title?: string } = {}
-  if (type !== undefined && type !== 'other' && current.type === 'other') patch.type = type
-  if (tags.length > 0 && current.tags.length === 0) patch.tags = tags
-  if (withTitle && title !== undefined && hasDerivedTitle(current)) patch.title = title
-  if (patch.type === undefined && patch.tags === undefined && patch.title === undefined) return
-  const updated = await service.update(entryId, patch)
+  // Decided against the note as it is when written, not as it was before the model call: a
+  // type, tags or title the person (or another session) set meanwhile stays.
+  const updated = await service.updateWith(entryId, current => {
+    const patch: { type?: EntryType; tags?: string[]; title?: string } = {}
+    if (type !== undefined && type !== 'other' && current.type === 'other') patch.type = type
+    if (tags.length > 0 && current.tags.length === 0) patch.tags = tags
+    if (withTitle && title !== undefined && hasDerivedTitle(current)) patch.title = title
+    return patch.type === undefined && patch.tags === undefined && patch.title === undefined ? undefined : patch
+  })
+  if (updated === undefined) return
   try {
     await writeNoteFile($, updated)
   } catch {
