@@ -85,7 +85,7 @@ Caption *Find it again in a second.* Search types **sharing**. Three results, th
 - DESIGN · **Optimistic vs pessimistic locking** · …*sharing* settings rarely conflict, so optimistic with a version check…
 - OPS · **Share links expire** · …*sharing* links get a 7-day TTL and a one-time token…
 
-Then the web notebook opens: the existing `docs/media/web-notebook.png`, unchanged.
+Then the web notebook opens: `docs/media/web-notebook.png`, a real screenshot of the web notebook (1280×760 at 2x) with these notes in a Design and an Ops notebook and the insight open.
 
 ### Yours (computed, ≈ 240 frames)
 
@@ -156,7 +156,9 @@ Unchanged: the mark and name, *Keep the answers worth keeping.*, the two install
 - `README.md`: the poster alt text and the "N-second film" line.
 - `docs/DEVELOPMENT.md:42`: the one-line description of what the film draws.
 
-Not changed: `kit.tsx`, `theme.ts`, `Root.tsx`, `index.ts`, `EndCard.tsx`, the soundtrack's instruments, `docs/media/web-notebook.png`, `social-preview.png`.
+- `docs/media/web-notebook.png`: retaken from the real web notebook, served from a scratch notes folder seeded with the story's notes (`server/notebook-server.mjs --serve --root <scratch> --web ./web`), through Remotion's bundled headless Chrome over the DevTools protocol at 1280×760, scale 2.
+
+Not changed: `kit.tsx`, `theme.ts`, `Root.tsx`, `index.ts`, `EndCard.tsx`, the soundtrack's instruments, `social-preview.png`.
 
 ## Verification
 
@@ -172,4 +174,4 @@ Open a PR to `main`. Once merged, delete `home-video` (local, `origin`, and its 
 
 ## Out of scope
 
-A new web-notebook screenshot for the Find scene (it still shows the real app with whatever notes it had), a voice track, and any change to the Mod or the notebook themselves.
+A voice track, and any change to the Mod or the notebook themselves.
