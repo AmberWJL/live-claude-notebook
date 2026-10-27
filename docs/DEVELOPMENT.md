@@ -38,18 +38,18 @@ macOS, Windows and Linux.
 
 `video/` is a [Remotion](https://www.remotion.dev) project (React, rendered
 to MP4) for the film on the home page: Claude Code desktop with the Save to
-notebook button and the Live Notebook pane, drawn in the app's layout with
-made-up sessions and messages; a student filling course notebooks; the web
-notebook editing a note, writing a new one and exporting a notebook (drawn in
-`video/src/scenes/Web.tsx`, its export laid out as `export-markdown.mjs`
-writes it). Its scenes are in `video/src/scenes/`, and
+notebook button and the Live Notebook pane, drawn in the app's layout
+(`video/src/scenes/desktop/`) through one made-up session designing a
+feature; the web notebook editing a note, writing a new one and exporting a
+notebook (drawn in `video/src/scenes/Web.tsx`, its export laid out as
+`export-markdown.mjs` writes it). The story's notes are in
+`video/src/story.ts`, the scenes in `video/src/scenes/`, and
 `video/src/cues.mjs` says when everything happens.
 
 The soundtrack is synthesized by `video/scripts/soundtrack.mjs` from the same
 cues (no samples or licensed music): a pad and bass in D, a soft pulse in the
 middle, and sound effects on the clicks, the chime when a note is saved, the
-key ticks as notes are typed, the notes landing in the folder and the
-export. Change a cue and both the
+key ticks as notes are typed and the export. Change a cue and both the
 picture and the sound move. The film plays it with `<Html5Audio>`, and the
 render mixes it in as AAC.
 

@@ -1,13 +1,13 @@
 // The film's soundtrack, synthesized from scratch (no samples, no music library, no licence to track): a warm
 // pad and bass in D, a soft half-time pulse while notes travel and get found, and sound effects placed on the
 // film's own cues (src/cues.mjs): message pops, the scroll-away whoosh and the rewind, button clicks, a chime when
-// the note is saved, key ticks as the file types itself, plucks as notes land in the folder. Writes
+// a note is saved, key ticks as the file and the developer's own notes type themselves, the export. Writes
 // public/soundtrack.wav (44.1 kHz, 16-bit stereo), which the film plays with <Html5Audio>.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { DESKTOP, END, EXPORT, FILM_FRAMES, FIND, FPS, LOCAL, SOURCES, START, YOURS, sourceShots } from '../src/cues.mjs'
+import { DESKTOP, END, EXPORT, FILM_FRAMES, FIND, FPS, LOCAL, START, YOURS } from '../src/cues.mjs'
 
 const SR = 44_100
 const SECONDS = FILM_FRAMES / FPS
@@ -124,8 +124,8 @@ for (const name of ['D2', 'D3', 'A3', 'C#4', 'E4', 'F#4', 'A4']) {
   tone({ start: endAt - 0.4, dur: SECONDS - endAt + 0.4, freq: NOTE(name), amp: name === 'D2' ? 0.07 : 0.024, attack: 1.0, release: 2.4, pan: 0, partials: PAD_PARTIALS })
 }
 
-// A soft half-time pulse while notes travel and get found: a round kick on beats one and three, a shaker between.
-const pulseFrom = at(0, START.sources)
+// A soft half-time pulse while notes are found, edited and exported: a round kick on beats one and three, a shaker between.
+const pulseFrom = at(0, START.find)
 const pulseTo = at(0, START.local)
 for (let s = pulseFrom; s < pulseTo - 0.05; s += BEAT) {
   const beat = Math.round((s - pulseFrom) / BEAT)
@@ -151,10 +151,10 @@ const tick = (start, amp = 0.05, pan = 0) => noise({ start, dur: 0.006, amp, fro
 const whoosh = (start, dur, from, to, amp, pan = 0) =>
   noise({ start, dur, amp, from, to, pan, shape: x => Math.sin(Math.PI * Math.min(1, x)) ** 1.5 })
 
-// The conversation: a pop for each message, the user's lower and to the right.
-DESKTOP.messages.forEach((frame, i) => {
-  const isUser = i % 2 === 0 && i < 6 ? true : i >= 6 ? i % 3 === 0 : false
-  const isRush = i >= 6
+// The conversation: a pop for each message, the user's lower and to the right, the rush's quieter.
+DESKTOP.messages.forEach(({ at: frame, role }, i) => {
+  const isUser = role === 'user'
+  const isRush = i >= DESKTOP.rush
   tone({ start: at(frame), dur: 0.09, freq: isUser ? 660 : 880, to: isUser ? 700 : 940, amp: isRush ? 0.035 : 0.06, attack: 0.004, release: 0.07, pan: isUser ? 0.3 : -0.2, partials: [[1, 1], [2, 0.2]] })
 })
 // It scrolls away: rising air while the replies rush past.
@@ -162,30 +162,23 @@ whoosh(at(DESKTOP.race[0]), at(DESKTOP.race[1] - DESKTOP.race[0]) + 0.2, 500, 70
 // The rewind: the air runs back down, with a falling tape tone.
 whoosh(at(DESKTOP.rewind[0]), at(DESKTOP.rewind[1] - DESKTOP.rewind[0]), 7000, 300, 0.12)
 tone({ start: at(DESKTOP.rewind[0]), dur: at(DESKTOP.rewind[1] - DESKTOP.rewind[0]), freq: 520, to: 140, amp: 0.025, attack: 0.05, release: 0.2 })
-// The button under the reply lights up.
-tone({ start: at(DESKTOP.glow), dur: 0.5, freq: NOTE('A5'), amp: 0.025, attack: 0.02, decay: 0.45, partials: [[1, 1], [2, 0.3]] })
-tone({ start: at(DESKTOP.glow) + 0.08, dur: 0.5, freq: NOTE('E6'), amp: 0.02, attack: 0.02, decay: 0.45 })
-// Save to notebook: a click, and the pane slides in.
-click(at(DESKTOP.clickButton), -0.2)
+// Each save: the button under the reply lights up, a click, a click on the pane's Save, and the chime, a step higher the second time.
+DESKTOP.saved.forEach((saved, k) => {
+  tone({ start: at(DESKTOP.glow[k]), dur: 0.5, freq: NOTE('A5'), amp: 0.025, attack: 0.02, decay: 0.45, partials: [[1, 1], [2, 0.3]] })
+  tone({ start: at(DESKTOP.glow[k]) + 0.08, dur: 0.5, freq: NOTE('E6'), amp: 0.02, attack: 0.02, decay: 0.45 })
+  click(at(DESKTOP.clickButton[k]), -0.2)
+  click(at(DESKTOP.clickSave[k]), 0.5)
+  chime(at(saved), NOTE(k === 0 ? 'A5' : 'B5'))
+})
+// The pane slides in on the first save.
 whoosh(at(DESKTOP.paneOpen[0]), at(DESKTOP.paneOpen[1] - DESKTOP.paneOpen[0]) + 0.1, 900, 3500, 0.07, 0.5)
-// Save in the pane: a click and the chime.
-click(at(DESKTOP.clickSave), 0.5)
-chime(at(DESKTOP.saved), NOTE('A5'))
-// The note lifts out into its file, which types itself in.
+// The notes lift out into their files; the learning's types itself in.
 whoosh(at(DESKTOP.morph), 0.7, 400, 2500, 0.08, -0.3)
 for (let line = 0; line < DESKTOP.lines; line += 1) {
   const startFrame = DESKTOP.typing + line * DESKTOP.step
   for (let k = 0; k < 4; k += 1) tick(at(startFrame) + k * 0.045 + random() * 0.01, 0.06, -0.3 + random() * 0.2)
 }
 tone({ start: at(DESKTOP.body), dur: 0.3, freq: NOTE('D5'), amp: 0.025, attack: 0.01, decay: 0.3 })
-
-// Every tool into one folder: a pluck as each note lands, pitched by its notebook.
-const PENTATONIC = ['D5', 'F#5', 'A5', 'B5', 'E5'].map(NOTE)
-for (const shot of sourceShots()) {
-  const land = at(shot.start + SOURCES.flight, START.sources)
-  tick(at(shot.start, START.sources), 0.025, -0.6)
-  tone({ start: land, dur: 0.5, freq: PENTATONIC[(shot.notebook * 2 + shot.source) % PENTATONIC.length], amp: 0.05, attack: 0.002, decay: 0.32, partials: [[1, 1], [2, 0.25], [3, 0.08]], pan: 0.45 })
-}
 
 // Search: a key tick for each letter of the word, a blip for each result, air as the notebook opens.
 for (let k = 0; k < FIND.word.length; k += 1) tick(at(FIND.typeAt, START.find) + (k * 1) / FIND.cps + 0.02, 0.09)
@@ -197,8 +190,8 @@ LOCAL.lines.forEach((frame, i) => tone({ start: at(frame, START.local), dur: 0.4
 whoosh(at(LOCAL.cloud, START.local), 0.6, 2000, 5000, 0.04, 0.5)
 whoosh(at(LOCAL.strike, START.local), 0.35, 1500, 9000, 0.1, 0.5)
 
-// Make it yours: a click into the note, key ticks as the student types their own line, a soft confirmation when
-// it saves; a click on New Note, then ticks for the title and the checklist.
+// Make it yours: a click into the note, key ticks as the developer types their own line, a soft confirmation when
+// it saves; a click on New Note, then ticks for the title and the decision.
 const typing = (text, startFrame, cps, pan) => {
   for (let k = 0; k < text.length; k += 2) tick(at(startFrame, START.yours) + k / cps + random() * 0.01, text[k] === ' ' ? 0.035 : 0.055, pan + random() * 0.15)
 }

@@ -3,9 +3,13 @@ import { useCurrentFrame } from 'remotion'
 
 import { FRAMES, LOCAL as Q } from '../cues.mjs'
 import { Scene, ease, useSpring } from '../kit'
+import { INSIGHT, LEARNING, NOTEBOOK, NOTES_DIR } from '../story'
 import { C, MONO } from '../theme'
 
 export const LOCAL_FRAMES = FRAMES.local
+
+/** The Design notebook's files: the two from the chat, the decision, and two more from the same work. */
+const FILES = [INSIGHT.file, LEARNING.file, 'sharing-the-decision--a81c03de.md', 'who-can-see-this-the-sheet--5b7e2f19.md', 'share-links-expire--c90d4a77.md']
 
 const LINES = [
   { text: 'No account.', at: Q.lines[0] },
@@ -20,7 +24,6 @@ const Laptop: React.FC = () => {
   const laptop = useSpring(10, 16)
   const cloud = ease(frame, Q.cloud, Q.cloud + 16)
   const strike = ease(frame, Q.strike, Q.strike + 16)
-  const files = [0, 1, 2, 3, 4]
   return (
     <div style={{ position: 'absolute', left: 1080, top: 250, width: 700, height: 640, opacity: laptop, transform: `translateY(${(1 - laptop) * 30}px)` }}>
       {/* The cloud, crossed out */}
@@ -32,15 +35,15 @@ const Laptop: React.FC = () => {
       </div>
       {/* The screen */}
       <div style={{ position: 'absolute', left: 40, top: 170, width: 620, height: 380, borderRadius: 26, border: `10px solid #3a3a35`, background: C.paper, boxSizing: 'border-box', overflow: 'hidden' }}>
-        <div style={{ padding: '22px 26px', fontFamily: MONO, fontSize: 20, color: C.inkMuted }}>~/.claude/live-notebook/notes/Payments</div>
-        {files.map(i => {
+        <div style={{ padding: '22px 26px', fontFamily: MONO, fontSize: 20, color: C.inkMuted }}>
+          {NOTES_DIR}/{NOTEBOOK}
+        </div>
+        {FILES.map((file, i) => {
           const shown = ease(frame, 24 + i * 6, 36 + i * 6)
           return (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 16, margin: '0 26px 12px', opacity: shown, transform: `translateX(${(1 - shown) * 20}px)` }}>
-              <div style={{ width: 22, height: 28, borderRadius: 4, border: `2px solid ${C.accent}`, background: '#fff' }} />
-              <div style={{ fontFamily: MONO, fontSize: 21, color: C.ink }}>
-                {['retry-with-backoff', 'idempotency-keys', 'webhook-signatures', 'refund-flow', 'currency-rounding'][i]}--{['3f2a91c0', 'a81c03de', '5b7e2f19', 'c90d4a77', '1e66b2f0'][i]}.md
-              </div>
+            <div key={file} style={{ display: 'flex', alignItems: 'center', gap: 16, margin: '0 26px 12px', opacity: shown, transform: `translateX(${(1 - shown) * 20}px)` }}>
+              <div style={{ width: 22, height: 28, borderRadius: 4, border: `2px solid ${C.accent}`, background: '#fff', flex: 'none' }} />
+              <div style={{ fontFamily: MONO, fontSize: 18, color: C.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file}</div>
             </div>
           )
         })}
@@ -77,7 +80,7 @@ export const Local: React.FC = () => {
           )
         })}
         <div style={{ marginTop: 38, fontSize: 30, color: C.muted, maxWidth: 820, lineHeight: 1.4, opacity: ease(frame, 70, 88) }}>
-          Open them in any editor. Back them up. Put them in git. They stay yours.
+          Every session, one folder. Open it in any editor, back it up, put it in git.
         </div>
       </div>
       <Laptop />

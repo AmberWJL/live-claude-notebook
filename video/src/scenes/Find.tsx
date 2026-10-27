@@ -3,22 +3,24 @@ import { Img, interpolate, staticFile, useCurrentFrame } from 'remotion'
 
 import { FIND as Q, FRAMES } from '../cues.mjs'
 import { Accent, Caption, Scene, Typed, ease, useSpring } from '../kit'
+import { INSIGHT, LEARNING, LINKS, NOTEBOOK } from '../story'
 import { C, MONO } from '../theme'
 
 export const FIND_FRAMES = FRAMES.find
 
+/** What the search for the cues' word finds; each snippet holds the word. */
 const RESULTS = [
-  { notebook: 'Payments', title: 'Retry with backoff', snippet: '…exponential backoff and jitter, and send an idempotency key…' },
-  { notebook: 'Ops', title: 'Blue/green deploys', snippet: '…a rollback is one DNS change; retry the health check twice…' },
-  { notebook: 'Frontend', title: 'Why the list re-rendered', snippet: '…the retry button recreated the callback on every render…' },
+  { notebook: NOTEBOOK, title: INSIGHT.title, snippet: '…they ask "who can see this?". One grants table answers the sharing question…' },
+  { notebook: NOTEBOOK, title: LEARNING.title, snippet: '…sharing settings rarely conflict, so optimistic with a version check…' },
+  { notebook: 'Ops', title: LINKS.title, snippet: '…sharing links get a 7-day TTL and a one-time token…' },
 ]
 const BAR = { left: 140, top: 300, width: 900 }
 
 export const Find: React.FC = () => {
   const frame = useCurrentFrame()
   const shot = useSpring(Q.shot, 20, 1)
-  const drift = interpolate(frame, [96, FIND_FRAMES], [0, 0.035], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
-  const listOut = ease(frame, 96, 116)
+  const listOut = ease(frame, Q.shot + 14, Q.shot + 34)
+  const drift = interpolate(frame, [Q.shot + 14, FIND_FRAMES], [0, 0.035], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
 
   return (
     <Scene duration={FIND_FRAMES}>
@@ -74,11 +76,11 @@ export const Find: React.FC = () => {
             >
               <div style={{ fontSize: 20, color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{result.notebook}</div>
               <div style={{ fontSize: 31, fontWeight: 700, marginTop: 2 }}>{result.title}</div>
-              <div style={{ fontSize: 21, color: C.muted, marginTop: 4, fontFamily: MONO }}>
-                {result.snippet.split('retry').map((part, k, parts) => (
+              <div style={{ fontSize: 21, color: C.muted, marginTop: 4, fontFamily: MONO, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {result.snippet.split(Q.word).map((part, k, parts) => (
                   <React.Fragment key={k}>
                     {part}
-                    {k < parts.length - 1 ? <span style={{ color: C.accent }}>retry</span> : null}
+                    {k < parts.length - 1 ? <span style={{ color: C.accent }}>{Q.word}</span> : null}
                   </React.Fragment>
                 ))}
               </div>
@@ -99,7 +101,7 @@ export const Find: React.FC = () => {
           overflow: 'hidden',
           boxShadow: '0 50px 140px rgba(0,0,0,.55)',
           border: `1px solid ${C.line}`,
-          opacity: Math.min(1, 0.0 + ease(frame, 50, 70) * 0.35 + shot),
+          opacity: Math.min(1, ease(frame, Q.results[1], Q.results[1] + 20) * 0.35 + shot),
           transform: `scale(${0.42 + shot * 0.58 + drift})`,
           transformOrigin: 'top left',
         }}
