@@ -1,4 +1,4 @@
-import type { FoldersRecord, NotebookEntry, NotebookTags } from '../../types'
+import type { FoldersRecord, NotebookEntry, NotebookTags } from '../types'
 import { NotebookError, messageOf } from '../domain/errors'
 import { SCHEMA_VERSION, validateEntry, validateFolders } from '../domain/notebook-entry'
 import type { NotebookRepository, ReadAllResult } from './notebook-repository'

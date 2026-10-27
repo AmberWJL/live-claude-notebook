@@ -8,9 +8,9 @@
     "typecheck": "tsc -p .",
     "validate": "claude plugin validate .",
     "test": "claude plugin test .",
-    "test:node": "node --test node-tests/note-format.test.mjs node-tests/server.test.mjs",
-    "web": "node server/notebook-server.mjs --launch",
-    "web:stop": "node server/notebook-server.mjs --stop"
+    "test:node": "node --test tests/node/note-format.test.mjs tests/node/server.test.mjs",
+    "web": "node web/server.mjs --launch",
+    "web:stop": "node web/server.mjs --stop"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

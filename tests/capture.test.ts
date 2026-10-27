@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import type { AppendedRow } from '../types'
+import type { AppendedRow } from '../src/types'
 import {
   draftFromCandidate,
   draftFromExcerpt,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import type { SourceReference } from '../types'
+import type { SourceReference } from '../src/types'
 import { NotebookError } from '../src/domain/errors'
 import { NotebookService } from '../src/services/notebook-service'
 import { InMemoryNotebookRepository } from '../src/storage/notebook-repository'

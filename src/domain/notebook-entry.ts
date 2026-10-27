@@ -8,7 +8,7 @@ import type {
   NotebookEntry,
   SourceReference,
   SourceRole,
-} from '../../types'
+} from '../types'
 
 export const SCHEMA_VERSION = 1 as const
 

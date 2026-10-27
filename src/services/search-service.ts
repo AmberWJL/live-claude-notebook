@@ -1,4 +1,4 @@
-import type { NotebookEntry } from '../../types'
+import type { NotebookEntry } from '../types'
 
 export type SearchOptions = {
   includeArchived?: boolean

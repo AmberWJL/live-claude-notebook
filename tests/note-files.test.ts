@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import type { NotebookEntry } from '../types'
+import type { NotebookEntry } from '../src/types'
 import { changedFiles, parseNote, planImport, relPathFor, serializeNote, slugOf } from '../src/services/note-files'
 
 function entry(partial: Partial<NotebookEntry> & { id: string }): NotebookEntry {

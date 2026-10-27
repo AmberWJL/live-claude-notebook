@@ -1,4 +1,4 @@
-import type { FoldersRecord, NotebookEntry, NotebookTags } from '../../types'
+import type { FoldersRecord, NotebookEntry, NotebookTags } from '../types'
 import { defaultFolders } from '../domain/notebook-entry'
 
 export type MalformedRecord = { key: string; reason: string }

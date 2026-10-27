@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import type { NotebookEntry } from '../types'
+import type { NotebookEntry } from '../src/types'
 import {
   heuristicTags,
   isCurrent,

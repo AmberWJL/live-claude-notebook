@@ -3,7 +3,7 @@
  * (insight, learning, ...) for the filters and a few tags. Pure; the hooks
  * module makes the model call and the person can change the result.
  */
-import type { EntryType } from '../../types'
+import type { EntryType } from '../types'
 import { ENTRY_TYPES } from '../domain/notebook-entry'
 import { normalizeTag } from './notebook-tags'
 

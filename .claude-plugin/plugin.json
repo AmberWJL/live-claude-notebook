@@ -5,7 +5,7 @@
   "author": {
     "name": "Amber Wang"
   },
-  "types": "./types/index.d.ts",
+  "types": "./src/types/index.d.ts",
   "homepage": "https://amberwjl.github.io/live-claude-notebook/",
   "repository": "https://github.com/AmberWJL/live-claude-notebook",
   "license": "MIT",

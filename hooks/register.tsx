@@ -21,7 +21,7 @@ import type {
   Notice,
   ServerInfo,
   SourceRole,
-} from '../types'
+} from '../src/types'
 import { NotebookError, messageOf } from '../src/domain/errors'
 import { defaultFolders } from '../src/domain/notebook-entry'
 import { aiModeOf, isNoteId, parseSourceFile, projectNameOf, sourcePathFor, type AiMode } from '../src/core/note-format.mjs'
@@ -897,7 +897,7 @@ async function startServer($: Dollar): Promise<ServerInfo> {
   if (nodePath === undefined) nodePath = await nodeBinary($)
   const node = nodePath
   const run = await hostRun($,
-    [node, `${pluginRoot}/server/notebook-server.mjs`, '--launch', '--root', root, '--web', `${pluginRoot}/web`],
+    [node, `${pluginRoot}/web/server.mjs`, '--launch', '--root', root, '--web', `${pluginRoot}/web/static`],
     { timeoutMs: 20_000 },
   )
   if (run.exitCode !== 0) {
