@@ -161,8 +161,8 @@ let isMacDark: boolean | null = null
  */
 async function readMacAppearance($: Dollar): Promise<boolean | null> {
   try {
-    if (!(await $.fs.exists(DEFAULTS))) return null
-    const result = await $.process.run([DEFAULTS, 'read', '-g', 'AppleInterfaceStyle'], { timeoutMs: 5_000 })
+    if (!(await hostExists($, DEFAULTS))) return null
+    const result = await hostRun($, [DEFAULTS, 'read', '-g', 'AppleInterfaceStyle'], { timeoutMs: 5_000 })
     return result.exitCode === 0 && result.stdout.trim() === 'Dark'
   } catch {
     return null
@@ -180,6 +180,39 @@ function isDarkSurface(surface: RenderSurface): boolean {
 }
 
 type Dollar = EngineInterface
+
+// ---------------------------------------------------------------------------
+// Engine members called from many functions, each behind one helper
+// ---------------------------------------------------------------------------
+// `claude plugin validate` prints every `$` call of this module on one line,
+// naming each function that makes it, and cuts that line at about a thousand
+// characters. Mod catalogues read the access footprint from that line, so the
+// members with many callers go through one helper each: the line stays whole
+// and what the mod touches does not change.
+
+function hostNow($: Dollar): Promise<number> {
+  return $.clock.now()
+}
+
+function hostAfter($: Dollar, ...args: Parameters<Dollar['clock']['after']>): ReturnType<Dollar['clock']['after']> {
+  return $.clock.after(...args)
+}
+
+function hostExists($: Dollar, path: string): Promise<boolean> {
+  return $.fs.exists(path)
+}
+
+function hostRead($: Dollar, path: string): Promise<string> {
+  return $.fs.read(path)
+}
+
+function hostWrite($: Dollar, path: string, text: string): Promise<void> {
+  return $.fs.write(path, text)
+}
+
+function hostRun($: Dollar, ...args: Parameters<Dollar['process']['run']>): ReturnType<Dollar['process']['run']> {
+  return $.process.run(...args)
+}
 
 // ---------------------------------------------------------------------------
 // Storage and service, bound to this session's `$`
@@ -202,7 +235,7 @@ function serviceOf($: Dollar): NotebookService {
   return new NotebookService({
     repository: repositoryOf($),
     newId: () => crypto.randomUUID(),
-    now: () => $.clock.now(),
+    now: () => hostNow($),
   })
 }
 
@@ -223,9 +256,9 @@ async function setNotice($: Dollar, notice: Notice): Promise<void> {
 
 /** A status line that clears itself, unless another has replaced it meanwhile. */
 async function flashNotice($: Dollar, notice: Exclude<Notice, null>): Promise<void> {
-  const stamped: Exclude<Notice, null> = { ...notice, at: await $.clock.now() }
+  const stamped: Exclude<Notice, null> = { ...notice, at: await hostNow($) }
   await update($, noticeAtom, () => stamped)
-  $.clock.after(NOTICE_MS, () => void update($, noticeAtom, current => (current?.at === stamped.at ? null : current ?? null)))
+  hostAfter($, NOTICE_MS, () => void update($, noticeAtom, current => (current?.at === stamped.at ? null : current ?? null)))
 }
 
 /** A capture of the same message, or the same text, already in the notebook. */
@@ -399,9 +432,9 @@ async function copyText($: Dollar, text: string, surface: RenderSurface): Promis
  * OS) there is no dialog: the file goes to `fallback`.
  */
 async function chooseSavePath($: Dollar, prompt: string, name: string, fallback: string): Promise<string | undefined> {
-  if (!(await $.fs.exists(OSASCRIPT))) return fallback
+  if (!(await hostExists($, OSASCRIPT))) return fallback
   const script = `tell application (path to frontmost application as text) to POSIX path of (choose file name with prompt ${JSON.stringify(prompt)} default name ${JSON.stringify(name)} default location (path to downloads folder))`
-  const result = await $.process.run([OSASCRIPT, '-e', script], { timeoutMs: SAVE_DIALOG_MS })
+  const result = await hostRun($, [OSASCRIPT, '-e', script], { timeoutMs: SAVE_DIALOG_MS })
   const path = result.stdout.trim()
   return result.exitCode === 0 && path !== '' ? path : undefined
 }
@@ -415,7 +448,7 @@ async function chooseSavePath($: Dollar, prompt: string, name: string, fallback:
  */
 async function exportNotebook($: Dollar, folder: string): Promise<void> {
   try {
-    const [entries, tags, root, now] = await Promise.all([read($, entriesAtom), read($, tagsAtom), notesRootOf($), $.clock.now()])
+    const [entries, tags, root, now] = await Promise.all([read($, entriesAtom), read($, tagsAtom), notesRootOf($), hostNow($)])
     const notes = activeIn(entries, folder).map(entry => ({
       title: entry.title,
       type: entry.type,
@@ -428,7 +461,7 @@ async function exportNotebook($: Dollar, folder: string): Promise<void> {
     if (chosen === undefined) return
     const path = /\.[^./]+$/.test(chosen) ? chosen : `${chosen}.md`
     const text = EXPORT_FORMATS[formatOf(path)].render({ name: folder, tags: tags[folder]?.tags ?? [], notes }, new Date(now).toISOString().slice(0, 10))
-    await $.fs.write(path, text)
+    await hostWrite($, path, text)
     await setNotice($, { tone: 'ok', text: `Exported ${folder} to ${path}`, copy: path })
   } catch (error) {
     await setNotice($, { tone: 'error', text: messageOf(error) })
@@ -459,7 +492,7 @@ function hasDerivedTitle(entry: NotebookEntry): boolean {
  */
 async function readAiMode($: Dollar): Promise<AiMode> {
   try {
-    return aiModeOf(await $.fs.read(`${await notesRootOf($)}/${SETTINGS_FILE}`))
+    return aiModeOf(await hostRead($, `${await notesRootOf($)}/${SETTINGS_FILE}`))
   } catch {
     return aiModeOf('')
   }
@@ -538,14 +571,14 @@ async function writeNoteFile($: Dollar, entry: NotebookEntry): Promise<NotebookE
   const current = entry.file === undefined ? await serviceOf($).setFile(entry.id, relPathFor(entry)) : entry
   const file = current.file ?? relPathFor(current)
   const abs = `${dir}/${file}`
-  await $.fs.write(abs, serializeNote(current))
+  await hostWrite($, abs, serializeNote(current))
   const stat = await $.fs.stat(abs)
   await update($, knownAtom, known => ({ ...(known ?? {}), [file]: stat.mtimeMs }))
   const sidecar = sourceFileOf(current)
   if (sidecar !== undefined) {
     const sidecarAbs = `${await notesRootOf($)}/${sidecar.path}`
     try {
-      if (!(await $.fs.exists(sidecarAbs))) await $.fs.write(sidecarAbs, sidecar.text)
+      if (!(await hostExists($, sidecarAbs))) await hostWrite($, sidecarAbs, sidecar.text)
     } catch {
       /* the snapshot stays in the store; the next write tries again */
     }
@@ -557,7 +590,7 @@ async function writeNoteFile($: Dollar, entry: NotebookEntry): Promise<NotebookE
 async function readSidecar($: Dollar, id: string): Promise<ReturnType<typeof parseSourceFile>> {
   if (!isNoteId(id)) return undefined
   try {
-    return parseSourceFile(await $.fs.read(`${await notesRootOf($)}/${sourcePathFor(id)}`))
+    return parseSourceFile(await hostRead($, `${await notesRootOf($)}/${sourcePathFor(id)}`))
   } catch {
     return undefined
   }
@@ -568,7 +601,7 @@ async function writeNotebookMeta($: Dollar, folder: string, tags: NotebookTags |
   const path = `${dir}/${folder}/${NOTEBOOK_META_FILE}`
   // The web's own keys (a pinned or archived notebook) stay.
   const existing = await readNotebookMeta($, path)
-  await $.fs.write(
+  await hostWrite($,
     path,
     JSON.stringify({ ...existing, name: folder, tags: tags?.tags ?? [], generatedAt: tags?.generatedAt ?? null }, null, 2),
   )
@@ -577,7 +610,7 @@ async function writeNotebookMeta($: Dollar, folder: string, tags: NotebookTags |
 /** A notebook's meta file as an object; `{}` when there is none or it does not parse. */
 async function readNotebookMeta($: Dollar, path: string): Promise<Record<string, unknown>> {
   try {
-    const parsed: unknown = JSON.parse(await $.fs.read(path))
+    const parsed: unknown = JSON.parse(await hostRead($, path))
     return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
   } catch {
     return {}
@@ -611,11 +644,11 @@ async function exportAll($: Dollar): Promise<void> {
   const [entries, folders, tags] = await Promise.all([read($, entriesAtom), read($, foldersAtom), read($, tagsAtom)])
   for (const entry of entries) {
     if (entry.status !== 'confirmed') continue
-    if (entry.file !== undefined && (await $.fs.exists(`${dir}/${entry.file}`))) continue
+    if (entry.file !== undefined && (await hostExists($, `${dir}/${entry.file}`))) continue
     await writeNoteFile($, entry)
   }
   for (const folder of folders.names) {
-    if (!(await $.fs.exists(`${dir}/${folder}/${NOTEBOOK_META_FILE}`))) await writeNotebookMeta($, folder, tags[folder])
+    if (!(await hostExists($, `${dir}/${folder}/${NOTEBOOK_META_FILE}`))) await writeNotebookMeta($, folder, tags[folder])
   }
 }
 
@@ -673,7 +706,7 @@ async function importChanges($: Dollar, options: { force?: boolean } = {}): Prom
   const texts: Record<string, string> = {}
   for (const file of changedFiles(files, known)) {
     try {
-      texts[file.path] = await $.fs.read(`${dir}/${file.path}`)
+      texts[file.path] = await hostRead($, `${dir}/${file.path}`)
     } catch {
       /* unreadable now; next scan */
     }
@@ -681,7 +714,7 @@ async function importChanges($: Dollar, options: { force?: boolean } = {}): Prom
   const [entries, folders] = await Promise.all([read($, entriesAtom), read($, foldersAtom)])
   const actions = planImport({ files, texts, entries, folders: folders.names, dirs })
   const service = serviceOf($)
-  const now = await $.clock.now()
+  const now = await hostNow($)
   let applied = 0
   // Notes written on the web have no type until a model gives them one, as a save in the pane does.
   const toClassify: string[] = []
@@ -741,7 +774,7 @@ async function importChanges($: Dollar, options: { force?: boolean } = {}): Prom
   for (const file of files) next[file.path] = file.mtimeMs
   await update($, knownAtom, () => next)
   if (applied > 0) await afterChange($)
-  for (const id of toClassify) $.clock.after(1, () => void classifyEntry($, id))
+  for (const id of toClassify) hostAfter($, 1, () => void classifyEntry($, id))
   return applied
 }
 
@@ -755,7 +788,7 @@ async function refreshTags($: Dollar): Promise<void> {
     read($, entriesAtom),
     read($, foldersAtom),
     read($, tagsAtom),
-    $.clock.now(),
+    hostNow($),
   ])
   const next = { ...current }
   const changed: string[] = []
@@ -776,7 +809,7 @@ async function refreshTags($: Dollar): Promise<void> {
       /* the web page shows the tags next time */
     }
   }
-  if (stale.length > 0) $.clock.after(1, () => void generateTags($, stale))
+  if (stale.length > 0) hostAfter($, 1, () => void generateTags($, stale))
 }
 
 /** A model's tags for each notebook, made only from the notes the AI setting lets it see; with none, the project-based tags stay. */
@@ -800,7 +833,7 @@ async function generateTags($: Dollar, folders: readonly string[]): Promise<void
     const tags = parseTags(result.text)
     if (tags.length === 0) continue
     if (tagsBasis(notebookStats(await read($, entriesAtom), folder)) !== basis) continue
-    const record: NotebookTags = { tags, basis, generatedAt: await $.clock.now(), by: 'model' }
+    const record: NotebookTags = { tags, basis, generatedAt: await hostNow($), by: 'model' }
     await repositoryOf($).writeTags(folder, record)
     await update($, tagsAtom, current => ({ ...(current ?? {}), [folder]: record }))
     try {
@@ -836,7 +869,7 @@ function parseServerInfo(stdout: string): ServerInfo {
  */
 async function nodeBinary($: Dollar): Promise<string> {
   try {
-    const probe = await $.process.run(['node', '--version'], { timeoutMs: 5_000 })
+    const probe = await hostRun($, ['node', '--version'], { timeoutMs: 5_000 })
     if (probe.exitCode === 0) return 'node'
   } catch {
     /* not on PATH */
@@ -853,7 +886,7 @@ async function nodeBinary($: Dollar): Promise<string> {
     /* no nvm */
   }
   for (const candidate of candidates) {
-    if (await $.fs.exists(candidate)) return candidate
+    if (await hostExists($, candidate)) return candidate
   }
   throw new NotebookError('storage', 'Node.js was not found. Install it, or put `node` on the PATH Claude Code starts with.')
 }
@@ -863,7 +896,7 @@ async function startServer($: Dollar): Promise<ServerInfo> {
   const pluginRoot = $.plugin.root
   if (nodePath === undefined) nodePath = await nodeBinary($)
   const node = nodePath
-  const run = await $.process.run(
+  const run = await hostRun($,
     [node, `${pluginRoot}/server/notebook-server.mjs`, '--launch', '--root', root, '--web', `${pluginRoot}/web`],
     { timeoutMs: 20_000 },
   )
@@ -897,7 +930,7 @@ async function openWeb($: Dollar, file?: string): Promise<void> {
     let isOpened = false
     for (const opener of openers) {
       try {
-        isOpened = (await $.process.run([...opener, url], { timeoutMs: 10_000 })).exitCode === 0
+        isOpened = (await hostRun($, [...opener, url], { timeoutMs: 10_000 })).exitCode === 0
       } catch {
         isOpened = false
       }
@@ -916,7 +949,7 @@ async function editInWeb($: Dollar, entryId: string): Promise<void> {
   if (!entry) return
   try {
     const dir = await notesDirOf($)
-    const current = entry.file !== undefined && (await $.fs.exists(`${dir}/${entry.file}`)) ? entry : await writeNoteFile($, entry)
+    const current = entry.file !== undefined && (await hostExists($, `${dir}/${entry.file}`)) ? entry : await writeNoteFile($, entry)
     await openWeb($, current.file)
   } catch (error) {
     await setNotice($, { tone: 'error', text: messageOf(error) })
@@ -926,9 +959,9 @@ async function editInWeb($: Dollar, entryId: string): Promise<void> {
 /** + Add New Note: an empty note in the last-used notebook, opened in the web notebook to write. */
 async function newNoteInWeb($: Dollar): Promise<void> {
   try {
-    const [dir, folders, now] = await Promise.all([notesDirOf($), read($, foldersAtom), $.clock.now()])
+    const [dir, folders, now] = await Promise.all([notesDirOf($), read($, foldersAtom), hostNow($)])
     const blank = blankNoteFile(crypto.randomUUID(), folders.last, now)
-    await $.fs.write(`${dir}/${blank.path}`, blank.text)
+    await hostWrite($, `${dir}/${blank.path}`, blank.text)
     await openWeb($, blank.path)
   } catch (error) {
     await setNotice($, { tone: 'error', text: messageOf(error) })
@@ -946,7 +979,7 @@ async function newNoteInWeb($: Dollar): Promise<void> {
  */
 async function captureMeta($: Dollar): Promise<CaptureMeta> {
   const [capturedAt, sessionId, cwd, folders] = await Promise.all([
-    $.clock.now(),
+    hostNow($),
     $.session.id(),
     $.session.root(),
     read($, foldersAtom),
@@ -1177,7 +1210,7 @@ async function confirmSave($: Dollar): Promise<void> {
     await flashNotice($, { tone: 'ok', text: `Saved to ${entry.folder}${fileNote}`, open: entry.id })
     await setView($, { kind: 'home' })
     $.ui.toast(`Saved to ${entry.folder}: ${entry.title}`)
-    $.clock.after(1, () => void classifyEntry($, entry.id, { withTitle: true }))
+    hostAfter($, 1, () => void classifyEntry($, entry.id, { withTitle: true }))
   } catch (error) {
     await setNotice($, {
       tone: 'error',
@@ -1243,7 +1276,7 @@ async function saveEdit($: Dollar): Promise<void> {
     await setNotice($, fileNote)
     await setView($, { kind: 'note', entryId: entry.id })
     await showPane($)
-    if (entry.type === 'other') $.clock.after(1, () => void classifyEntry($, entry.id))
+    if (entry.type === 'other') hostAfter($, 1, () => void classifyEntry($, entry.id))
   } catch (error) {
     await setNotice($, { tone: 'error', text: `${messageOf(error)} Your changes are still here.` })
   } finally {
@@ -1295,7 +1328,7 @@ async function removeFiles($: Dollar, paths: readonly string[]): Promise<void> {
   try {
     if (nodePath === undefined) nodePath = await nodeBinary($)
     const script = 'for (const path of process.argv.slice(1)) require("node:fs").rmSync(path, { force: true })'
-    await $.process.run([nodePath, '-e', script, ...paths], { timeoutMs: 10_000 })
+    await hostRun($, [nodePath, '-e', script, ...paths], { timeoutMs: 10_000 })
   } catch {
     /* the files stay */
   }
@@ -1323,11 +1356,11 @@ async function forgetNoteFile($: Dollar, file: string): Promise<void> {
 async function trashNoteFile($: Dollar, file: string, id: string): Promise<void> {
   const root = await notesRootOf($)
   const abs = `${root}/${NOTES_DIR}/${file}`
-  const stamp = new Date(await $.clock.now()).toISOString().replace(/[:.]/g, '-')
+  const stamp = new Date(await hostNow($)).toISOString().replace(/[:.]/g, '-')
   const [folder = '', name = ''] = file.split('/')
   const moved: string[] = []
   try {
-    await $.fs.write(`${root}/${TRASH_DIR}/${folder}/${name.replace(/\.md$/, '')}--${stamp}.md`, await $.fs.read(abs))
+    await hostWrite($, `${root}/${TRASH_DIR}/${folder}/${name.replace(/\.md$/, '')}--${stamp}.md`, await hostRead($, abs))
     moved.push(abs)
   } catch {
     /* no file to keep */
@@ -1335,8 +1368,8 @@ async function trashNoteFile($: Dollar, file: string, id: string): Promise<void>
   if (isNoteId(id)) {
     const sidecar = `${root}/${sourcePathFor(id)}`
     try {
-      if (await $.fs.exists(sidecar)) {
-        await $.fs.write(`${root}/${TRASH_DIR}/${sourcePathFor(id)}`, await $.fs.read(sidecar))
+      if (await hostExists($, sidecar)) {
+        await hostWrite($, `${root}/${TRASH_DIR}/${sourcePathFor(id)}`, await hostRead($, sidecar))
         moved.push(sidecar)
       }
     } catch {
@@ -1433,7 +1466,7 @@ export const register: Register = on => {
     // Notes saved from the chat before titles came from the model get one, once.
     const untitled = (await read($, entriesAtom)).filter(one => one.status === 'confirmed' && isFromChat(one) && hasDerivedTitle(one))
     if (untitled.length > 0) {
-      $.clock.after(1, () => void (async () => {
+      hostAfter($, 1, () => void (async () => {
         for (const one of untitled) await classifyEntry($, one.id, { withTitle: true })
       })())
     }
@@ -1446,7 +1479,7 @@ export const register: Register = on => {
     // The desktop app starts the engine through the SDK, which reports no surface yet; only the REPL says terminal.
     if (e.surface !== 'terminal') isMacDark = await readMacAppearance($)
     $.clock.every(IMPORT_EVERY_MS, () => void importChanges($))
-    $.clock.after(1, () => void ensureServer($))
+    hostAfter($, 1, () => void ensureServer($))
     return next(e)
   })
 
