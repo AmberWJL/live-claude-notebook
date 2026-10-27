@@ -1,0 +1,20 @@
+{
+  "name": "live-notebook",
+  "version": "0.4.0",
+  "description": "Save replies from your Claude Code conversations as Markdown notes on your own computer, then browse, search and edit them in a pane or the web notebook. Local-first: no account, no cloud.",
+  "author": {
+    "name": "Amber Wang"
+  },
+  "types": "./types/index.d.ts",
+  "homepage": "https://github.com/AmberWJL/live-claude-notebook",
+  "repository": "https://github.com/AmberWJL/live-claude-notebook",
+  "license": "MIT",
+  "keywords": [
+    "notes",
+    "markdown",
+    "knowledge-base",
+    "local-first",
+    "save-responses",
+    "search"
+  ]
+}

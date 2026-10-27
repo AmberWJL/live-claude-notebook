@@ -1,0 +1,18 @@
+{
+  "name": "live-notebook",
+  "version": "0.4.0",
+  "private": true,
+  "description": "Live Notebook: a Claude Code Mod for capturing and searching useful conversation content.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "validate": "claude plugin validate .",
+    "test": "claude plugin test .",
+    "test:node": "node --test node-tests/note-format.test.mjs node-tests/server.test.mjs",
+    "web": "node server/notebook-server.mjs --launch",
+    "web:stop": "node server/notebook-server.mjs --stop"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

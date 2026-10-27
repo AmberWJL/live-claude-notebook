@@ -1,0 +1,529 @@
+:root {
+  --bg: #fbfbfa;
+  --panel: #f3f3f1;
+  --line: #e6e6e2;
+  --text: #1f1f1d;
+  --muted: #7a7a74;
+  --accent: #d97757;
+  --accent-ink: #ffffff;
+  --hover: #ebebe8;
+  --selected: #e4e4e0;
+  --radius: 10px;
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%237a7a74' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171716;
+    --panel: #1f1f1d;
+    --line: #2c2c29;
+    --text: #ececea;
+    --muted: #9a9a93;
+    --hover: #292927;
+    --selected: #32322f;
+    --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%239a9a93' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+#app {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  height: 100%;
+}
+
+#sidebar {
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 16px 10px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.brand-mark {
+  color: var(--accent);
+}
+
+.sidebar-actions {
+  display: flex;
+  gap: 8px;
+  padding: 6px 12px 10px;
+}
+
+.button {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.button:hover {
+  background: var(--hover);
+}
+
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.button.primary:hover {
+  filter: brightness(0.95);
+}
+
+.button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.button.quiet:hover {
+  color: #c0392b;
+  background: var(--hover);
+}
+
+.search {
+  margin: 0 12px 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  outline: none;
+}
+
+.search:focus {
+  border-color: var(--accent);
+}
+
+.new-notebook {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 0 12px 8px;
+}
+
+.new-notebook[hidden] {
+  display: none;
+}
+
+.new-notebook .search {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.tree {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 8px 12px;
+}
+
+.notebook {
+  margin-top: 8px;
+}
+
+.notebook-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 6px 8px 2px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.notebook-head:hover {
+  background: var(--hover);
+}
+
+.notebook-head .count {
+  font-variant-numeric: tabular-nums;
+}
+
+.notebook-head .head-start {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.notebook-head .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The notebook's caret: `›` when closed, turned down when its notes show. */
+.notebook-head .head-caret {
+  display: inline-block;
+  width: 1em;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+
+.notebook-head.open .head-caret {
+  transform: translateY(1px) rotate(90deg);
+}
+
+/* The mark on a pinned notebook's head, after its name. */
+.notebook-head .head-pin {
+  flex: none;
+  display: inline-flex;
+  align-self: center;
+  margin-left: 6px;
+  color: var(--muted);
+}
+
+.notebook-head .head-end {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+/* Export shows while the pointer or the keyboard is on the notebook's head. */
+/* Export: a small outlined pill at the head's right end, shown under the pointer; the accent under the pointer, pressed in on a click. */
+.notebook-head .head-action {
+  padding: 1px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.5;
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, border-color 0.12s, color 0.12s, transform 0.08s;
+}
+
+.notebook-head:hover .head-action,
+.notebook-head:focus-within .head-action {
+  opacity: 1;
+}
+
+.notebook-head .head-action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.notebook-head .head-action:active {
+  transform: scale(0.94);
+}
+
+.notebook-head .head-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@media (hover: none) {
+  .notebook-head .head-action {
+    opacity: 1;
+  }
+}
+
+.notebook-summary {
+  padding: 0 8px 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.note-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.note-row:hover {
+  background: var(--hover);
+}
+
+.note-row.selected {
+  background: var(--selected);
+}
+
+/* A note picked with ⌘-click or shift-click, one of several the menu acts on. */
+.note-row.picked {
+  background: var(--selected);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.note-row .row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.note-row .row-mark {
+  flex: none;
+  width: 1em;
+  text-align: center;
+  color: var(--accent);
+}
+
+.note-row .row-title {
+  display: block;
+  min-width: 0;
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-row .row-preview {
+  display: block;
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-row .row-pin {
+  flex: none;
+  display: inline-flex;
+  align-self: center;
+  color: var(--muted);
+}
+
+/* A row being dragged to another notebook, and the notebook it is over. */
+.note-row.dragging {
+  opacity: 0.45;
+}
+
+.notebook.drop-target {
+  border-radius: 8px;
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+/* The right-click menu on a note row or a notebook's head: Pin, Archive, Delete. */
+.menu {
+  position: fixed;
+  z-index: 20;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+
+.menu[hidden] {
+  display: none;
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.menu-item:hover,
+.menu-item:focus {
+  background: var(--hover);
+  outline: none;
+}
+
+.menu-item.danger {
+  color: #c0392b;
+}
+
+.notebook-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 8px 8px;
+}
+
+.tag {
+  font-size: 11.5px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.status {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.status[data-tone='error'] {
+  color: #c0392b;
+}
+
+#main {
+  min-height: 0;
+  overflow: auto;
+}
+
+.empty {
+  max-width: 560px;
+  margin: 18vh auto 0;
+  padding: 0 24px;
+  color: var(--muted);
+}
+
+.empty .status {
+  margin-top: 12px;
+}
+
+.empty h1 {
+  color: var(--text);
+  font-weight: 650;
+  font-size: 26px;
+  margin: 0 0 8px;
+}
+
+.note {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 36px 32px 80px;
+}
+
+.crumbs {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.title {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font-size: 30px;
+  font-weight: 700;
+  padding: 6px 0 2px;
+  margin-top: 4px;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 10px;
+}
+
+.meta-spacer {
+  flex: 1;
+}
+
+/* The type picker draws its own chevron, so there is room between it and the outline. */
+.type-picker {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  color: var(--accent);
+  background: var(--select-arrow) no-repeat right 9px center / 10px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 26px 2px 8px;
+  cursor: pointer;
+}
+
+.type-picker:hover,
+.type-picker:focus {
+  border-color: var(--muted);
+  outline: none;
+}
+
+/* Vditor: make it read like a document, not a toolbar-heavy editor. */
+#editor.vditor {
+  border: 0;
+  background: transparent;
+}
+
+#editor .vditor-toolbar {
+  background: transparent;
+  border-bottom: 1px solid var(--line);
+  padding-left: 0 !important;
+}
+
+#editor .vditor-reset {
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.65;
+  padding: 10px 0 !important;
+}
+
+#editor .vditor-ir pre.vditor-reset {
+  background: transparent;
+}
+
+#editor .vditor-reset code,
+#editor .vditor-reset pre {
+  font-family: var(--mono);
+}
+
+@media (max-width: 760px) {
+  #app {
+    grid-template-columns: 1fr;
+  }
+  #sidebar {
+    display: none;
+  }
+}
