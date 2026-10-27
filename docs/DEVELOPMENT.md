@@ -58,6 +58,7 @@ cd video && npm install
 npm run studio   # synthesize the soundtrack, then preview and scrub in the browser
 npm run render   # docs/media/live-notebook.mp4, with sound
 npm run poster   # docs/media/live-notebook-poster.jpg
+npm run gifs     # docs/gifs/*.gif, the film's beats for the README
 ```
 
 Remotion downloads its own headless Chrome the first time; add
