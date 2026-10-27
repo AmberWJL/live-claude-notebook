@@ -2,7 +2,7 @@
 
 **Markdown notes from your Claude Code conversations, kept on your own computer.** A Save to notebook button under every reply; search, edit and export in a notebook that opens in your browser. Free, open source, local-first: no account, no cloud.
 
-**[▶ Watch the demo video](docs/media/live-notebook.mp4)**
+**[▶ Watch the demo video](https://amberwjl.github.io/live-claude-notebook/)**
 
 ## What it does
 
