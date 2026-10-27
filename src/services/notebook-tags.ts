@@ -3,7 +3,7 @@
  * drawn from the notes' project directories, and the prompt a model answers
  * with better ones. Pure; the hooks module makes the model call.
  */
-import type { NotebookEntry, NotebookTags } from '../../types'
+import type { NotebookEntry, NotebookTags } from '../types'
 import { projectNameOf } from '../core/note-format.mjs'
 import { byRecency } from './search-service'
 

@@ -9,8 +9,8 @@ import { join } from 'node:path'
 import { after, before, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-const SERVER = fileURLToPath(new URL('../server/notebook-server.mjs', import.meta.url))
-const WEB = fileURLToPath(new URL('../web', import.meta.url))
+const SERVER = fileURLToPath(new URL('../../web/server.mjs', import.meta.url))
+const WEB = fileURLToPath(new URL('../../web/static', import.meta.url))
 
 /** Starts a server on a free port; resolves with its address once it says it listens. */
 function start(args, env = {}) {

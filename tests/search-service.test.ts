@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import type { NotebookEntry } from '../types'
+import type { NotebookEntry } from '../src/types'
 import { matchExcerpt, searchEntries } from '../src/services/search-service'
 
 function entry(partial: Partial<NotebookEntry> & { id: string }): NotebookEntry {

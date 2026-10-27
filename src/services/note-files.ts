@@ -4,7 +4,7 @@
  * of the files is turned into the changes to apply to the store. Pure, so
  * the hooks module only does the reading and writing.
  */
-import type { EntryType, NotebookEntry, SourceRole } from '../../types'
+import type { EntryType, NotebookEntry, SourceRole } from '../types'
 import { DEFAULT_FOLDER, isEntryType } from '../domain/notebook-entry'
 import { normalizeContent } from '../utils/normalize-content'
 import {

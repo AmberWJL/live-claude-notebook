@@ -5,11 +5,13 @@ technical details for people working on the Mod itself.
 
 ## Layout
 
-The Mod's source is this folder. The hooks module is `hooks/register.tsx`;
-pure logic lives under `src/` and `hooks/capture.ts`; the pane's drawing is
-`hooks/ui/notebook-pane.tsx`; the data model and state contract are
-`types/index.d.ts`. The web notebook is `server/notebook-server.mjs` (Node,
-no dependencies, bound to 127.0.0.1) plus the static files in `web/`.
+The Mod's source is this folder. `hooks/` is the Mod itself: the hooks module
+`hooks/register.tsx`, the capture logic in `hooks/capture.ts` and the pane's
+drawing in `hooks/ui/`. Pure logic lives under `src/`, with the data model and
+state contract in `src/types/index.d.ts`. The web notebook is `web/`:
+`web/server.mjs` (Node, no dependencies, bound to 127.0.0.1) serves the static
+files in `web/static/`. Tests are in `tests/` (`claude plugin test`) and
+`tests/node/` (`npm run test:node`).
 
 ## Checks
 

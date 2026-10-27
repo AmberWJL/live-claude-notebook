@@ -9,7 +9,7 @@ import type {
   NotebookView,
   Notice,
   ServerInfo,
-} from '../../types'
+} from '../../src/types'
 import { ENTRY_TYPES, isEntryType } from '../../src/domain/notebook-entry'
 import { TYPE_GLYPHS, TYPE_LABELS } from '../../src/services/classify'
 import { activeIn } from '../../src/services/notebook-tags'

@@ -1,4 +1,4 @@
-import type { FoldersRecord, NotebookEntry } from '../../types'
+import type { FoldersRecord, NotebookEntry } from '../types'
 import { NotebookError } from '../domain/errors'
 import {
   DEFAULT_FOLDER,

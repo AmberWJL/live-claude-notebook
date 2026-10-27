@@ -6,7 +6,7 @@ import type {
   CaptureDraft,
   MessageCandidate,
   SourceReference,
-} from '../types'
+} from '../src/types'
 import { normalizeContent } from '../src/utils/normalize-content'
 
 /** How many appended rows are fingerprinted for message-id matching. */

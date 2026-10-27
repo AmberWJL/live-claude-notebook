@@ -14,7 +14,7 @@ import {
   serializeNoteFile,
   slugOf,
   titleOf,
-} from '../src/core/note-format.mjs'
+} from '../../src/core/note-format.mjs'
 
 test('a note file round-trips every front matter field and its body', () => {
   const meta = {

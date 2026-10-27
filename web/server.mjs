@@ -3,12 +3,12 @@
  * Live Notebook's local web server: serves the editor site and reads and
  * writes the markdown note files under `<root>/notes`. Zero dependencies.
  *
- *   node notebook-server.mjs --launch --root <dir> --web <dir>
+ *   node server.mjs --launch --root <dir> --web <dir>
  *       Starts a detached server (or finds the running one) and prints
  *       `{ "port", "pid", "url", "startedAt" }` as one JSON line.
- *   node notebook-server.mjs --serve  --root <dir> --web <dir> [--port <n>]
+ *   node server.mjs --serve  --root <dir> --web <dir> [--port <n>]
  *       Runs the server in the foreground.
- *   node notebook-server.mjs --stop   --root <dir>
+ *   node server.mjs --stop   --root <dir>
  *       Stops the server named in `<root>/server.json`.
  *
  * It binds to 127.0.0.1 only, on the same port every time (remembered in
@@ -49,7 +49,7 @@ import { EXPORT_FORMATS } from '../src/services/export-markdown.mjs'
 const args = parseArgs(process.argv.slice(2))
 const root = resolve(args.root ?? (process.env.LIVE_NOTEBOOK_HOME?.trim() || join(homedir(), '.claude', 'live-notebook')))
 const notesDir = join(root, NOTES_DIR)
-const webDir = resolve(args.web ?? join(fileURLToPath(new URL('.', import.meta.url)), '..', 'web'))
+const webDir = resolve(args.web ?? join(fileURLToPath(new URL('.', import.meta.url)), 'static'))
 const serverFile = join(root, 'server.json')
 const portFile = join(root, 'port')
 const touchFile = join(notesDir, '.touch')
