@@ -3,6 +3,7 @@ import { Easing, interpolate, useCurrentFrame } from 'remotion'
 
 import { EXPORT as X, FRAMES, YOURS as Y } from '../cues.mjs'
 import { Accent, Caption, Cursor, Scene, ease, typedCount, useSpring } from '../kit'
+import { INSIGHT, LEARNING, LINKS, NOTEBOOK, SHEET } from '../story'
 import { C, MONO, SANS } from '../theme'
 
 export const YOURS_FRAMES = FRAMES.yours
@@ -17,26 +18,22 @@ const W = { bg: '#fbfbfa', panel: '#f3f3f1', line: '#e6e6e2', text: '#1f1f1d', m
 type Row = { title: string; preview: string; glyph: string; isOpen?: boolean; isNew?: boolean }
 type Notebook = { name: string; rows: Row[]; isHovered?: boolean; exportPressed?: boolean }
 
-const LEARNING = '↗'
-
-const BINARY =
-  'Halve the range at each step: compare the target with the middle item and keep the half that can still hold it. That is O(log n): a million items take about 20 steps.'
-
+/** The Design notebook as the sidebar lists it: the new note on top once it exists, the locking note open until then. */
 function notebooksAt(frame: number, scene: 'yours' | 'export'): Notebook[] {
   const isNew = scene === 'export' || frame >= Y.clickNew
   const newTitle = scene === 'export' ? Y.title : Y.title.slice(0, typedCount(Y.title, frame, Y.titleAt, Y.cps.title)) || 'Untitled'
   const openNew = scene === 'yours' && frame >= Y.clickNew
   return [
     {
-      name: 'Algorithms',
+      name: NOTEBOOK,
       rows: [
-        ...(isNew ? [{ title: newTitle, preview: scene === 'export' || frame >= Y.bodyAt ? Y.body.split('\n')[0] : '—', glyph: '•', isOpen: openNew, isNew: true }] : []),
-        { title: 'Binary search', preview: BINARY, glyph: LEARNING, isOpen: scene === 'yours' && !openNew },
-        { title: 'Recursion needs a base case', preview: 'A recursive function must stop: the base case returns without calling itself…', glyph: LEARNING },
-        { title: 'Big-O of common loops', preview: 'One loop over n items is O(n); a loop inside a loop is O(n²)…', glyph: LEARNING },
+        ...(isNew ? [{ title: newTitle, preview: scene === 'export' || frame >= Y.bodyAt ? Y.body.split('\n')[0].replace(/`/g, '') : '—', glyph: '•', isOpen: openNew, isNew: true }] : []),
+        { title: LEARNING.title, preview: LEARNING.text, glyph: LEARNING.glyph, isOpen: scene === 'yours' && !openNew },
+        { title: INSIGHT.title, preview: INSIGHT.text, glyph: INSIGHT.glyph },
+        { title: SHEET.title, preview: SHEET.text, glyph: LEARNING.glyph },
       ],
     },
-    { name: 'Data structures', rows: [{ title: 'Hash maps vs. arrays', preview: 'Look-up by key in O(1) on average…', glyph: '◉' }] },
+    { name: 'Ops', rows: [{ title: LINKS.title, preview: LINKS.text, glyph: INSIGHT.glyph }] },
   ]
 }
 
@@ -187,7 +184,7 @@ export const Yours: React.FC = () => {
     <Scene duration={YOURS_FRAMES}>
       {frame < Y.clickNew - 6 ? (
         <Caption delay={4} size={50} top={62}>
-          Edit any note. <Accent>Add what you understood.</Accent>
+          Edit any note. <Accent>Add what you decided.</Accent>
         </Caption>
       ) : (
         <Caption delay={Y.clickNew - 4} size={50} top={62}>
@@ -197,14 +194,14 @@ export const Yours: React.FC = () => {
       <Window>
         <Sidebar notebooks={notebooksAt(frame, 'yours')} newPressed={frame >= Y.clickNew && frame < Y.clickNew + 6} />
         <div style={{ position: 'absolute', left: SIDE + 90, right: 90, top: BAR + 44, fontFamily: SANS }}>
-          <div style={{ fontSize: 15, letterSpacing: '0.1em', color: W.muted }}>ALGORITHMS</div>
+          <div style={{ fontSize: 15, letterSpacing: '0.1em', color: W.muted }}>{NOTEBOOK.toUpperCase()}</div>
           <div style={{ marginTop: 6, fontSize: 46, fontWeight: 750, letterSpacing: '-0.02em', color: isNew && titleShown === 0 ? '#c9c8c2' : W.text }}>
-            {isNew ? Y.title.slice(0, titleShown) || 'Untitled' : 'Binary search'}
+            {isNew ? Y.title.slice(0, titleShown) || 'Untitled' : LEARNING.title}
             {isNew && isTypingNew && titleShown < Y.title.length ? <span style={{ color: W.accent }}>▍</span> : null}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '12px 0 16px', fontSize: 17, color: W.muted }}>
-            {isNew ? 'Created just now' : 'Created Oct 21 · saved from a Claude reply'}
-            <span style={{ padding: '3px 10px', borderRadius: 7, border: `1px solid ${W.line}`, color: W.accent }}>{isNew ? '• Other' : `${LEARNING} Learning`} ▾</span>
+            {isNew ? 'Created just now' : 'Created today · saved from a Claude reply'}
+            <span style={{ padding: '3px 10px', borderRadius: 7, border: `1px solid ${W.line}`, color: W.accent }}>{isNew ? '• Other' : `${LEARNING.glyph} ${LEARNING.type}`} ▾</span>
             <span style={{ marginLeft: 'auto', color: '#3f8a5a', opacity: isNew ? saved(Y.done + 4) : saved(Y.saved) }}>Saved</span>
           </div>
           <Toolbar />
@@ -213,8 +210,8 @@ export const Yours: React.FC = () => {
               frame >= Y.bodyAt ? <Rendered text={Y.body.slice(0, bodyShown)} caretAt={bodyShown < Y.body.length ? bodyShown : undefined} /> : <div style={{ color: '#c9c8c2' }}>Write in markdown…</div>
             ) : (
               <>
-                <div style={{ fontWeight: 700, fontSize: 30, marginBottom: 10 }}>Binary search</div>
-                <div>{BINARY}</div>
+                <div style={{ fontWeight: 700, fontSize: 30, marginBottom: 10 }}>{LEARNING.title}</div>
+                <div>{LEARNING.text}</div>
                 {frame >= Y.clickInto && <Rendered text={Y.added.slice(0, addedShown) || ' '} caretAt={isTypingAdd ? addedShown : undefined} />}
               </>
             )}
@@ -232,23 +229,24 @@ export const Yours: React.FC = () => {
 
 /** What Export writes: the notebook as one Markdown file, laid out as the real export lays it out. */
 const EXPORTED = [
-  '# Algorithms',
-  '#algorithms #cs-201',
+  `# ${NOTEBOOK}`,
+  '#design #sharing',
   '_Exported from Live Notebook on 2026-10-26 · 4 notes_',
   '---',
   `## ${Y.title}`,
   ...Y.body.split('\n'),
   '---',
-  '## Binary search',
-  '_learning · created 2026-10-21 · from a message_',
-  'Halve the range at each step: compare the target with…',
-  '> My note: it only works on a sorted array, so check that first.',
+  `## ${LEARNING.title}`,
+  '_learning · created 2026-10-26 · from a message_',
+  `${LEARNING.text.split('. ')[0]}…`,
+  Y.added,
   '---',
-  '## Recursion needs a base case',
+  `## ${INSIGHT.title}`,
 ]
 
+/** Headings in ink, the tag line in the accent, metadata muted, the quote in the accent, the rest as text. */
 const mdColor = (line: string) =>
-  line.startsWith('#') ? (line.startsWith('#a') ? C.accentDeep : C.ink) : line.startsWith('_') ? C.inkMuted : line === '---' ? '#b3b2ab' : line.startsWith('>') ? C.accentDeep : '#3d3d38'
+  /^#+ /.test(line) ? C.ink : line.startsWith('#') ? C.accentDeep : line.startsWith('_') ? C.inkMuted : line === '---' ? '#b3b2ab' : line.startsWith('>') ? C.accentDeep : '#3d3d38'
 
 export const Export: React.FC = () => {
   const frame = useCurrentFrame()
@@ -274,15 +272,15 @@ export const Export: React.FC = () => {
       </Caption>
       {frame >= X.file + 14 && (
         <div style={{ position: 'absolute', left: 1100, top: 470, width: 640, fontSize: 34, lineHeight: 1.3, color: C.text, fontWeight: 700, opacity: ease(frame, X.file + 20, X.file + 36), letterSpacing: '-0.02em' }}>
-          A study guide, ready to
+          A design doc, ready to
           <br />
-          <Accent>share, print or revise from.</Accent>
+          <Accent>share with your team.</Accent>
         </div>
       )}
       <Window dim={away}>
         <Sidebar notebooks={notebooksAt(frame, 'export')} exportHover={ease(frame, X.hover - 4, X.hover + 4)} exportPressed={frame >= X.click && frame < X.click + 6} />
         <div style={{ position: 'absolute', left: SIDE + 90, right: 90, top: BAR + 44 }}>
-          <div style={{ fontSize: 15, letterSpacing: '0.1em', color: W.muted }}>ALGORITHMS</div>
+          <div style={{ fontSize: 15, letterSpacing: '0.1em', color: W.muted }}>{NOTEBOOK.toUpperCase()}</div>
           <div style={{ marginTop: 6, fontSize: 46, fontWeight: 750, letterSpacing: '-0.02em' }}>{Y.title}</div>
           <div style={{ margin: '12px 0 16px', fontSize: 17, color: W.muted }}>Created today</div>
           <Toolbar />
@@ -310,10 +308,10 @@ export const Export: React.FC = () => {
                 color: W.text,
               }}
             >
-              <div style={{ fontWeight: 700, fontSize: 20 }}>Export Algorithms as one markdown file</div>
+              <div style={{ fontWeight: 700, fontSize: 20 }}>Export {NOTEBOOK} as one markdown file</div>
               <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: '14px 12px', marginTop: 22, alignItems: 'center' }}>
                 <span style={{ color: W.muted }}>Save As</span>
-                <span style={{ padding: '7px 12px', border: `2px solid ${W.accent}`, borderRadius: 8, fontFamily: MONO, fontSize: 18 }}>algorithms.md</span>
+                <span style={{ padding: '7px 12px', border: `2px solid ${W.accent}`, borderRadius: 8, fontFamily: MONO, fontSize: 18 }}>{NOTEBOOK.toLowerCase()}.md</span>
                 <span style={{ color: W.muted }}>Where</span>
                 <span style={{ padding: '7px 12px', border: `1px solid ${W.line}`, borderRadius: 8 }}>Downloads ▾</span>
                 <span style={{ color: W.muted }}>Format</span>
@@ -348,7 +346,8 @@ export const Export: React.FC = () => {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, height: 64, padding: '0 28px', borderBottom: '1px solid #e6e6e2', fontFamily: MONO, fontSize: 21, color: C.inkMuted }}>
-            <span style={{ color: C.accentDeep }}>Downloads/</span>algorithms.md
+            <span style={{ color: C.accentDeep }}>Downloads/</span>
+            {NOTEBOOK.toLowerCase()}.md
           </div>
           <div style={{ padding: '20px 30px', fontFamily: MONO, fontSize: 21, lineHeight: 1.55 }}>
             {EXPORTED.map((line, i) => (

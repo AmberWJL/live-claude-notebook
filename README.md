@@ -2,9 +2,9 @@
 
 **Markdown notes from your Claude Code conversations, kept on your own computer.** Save the useful parts of a reply (the whole thing or a few lines), find them again in seconds, and tidy them up in a notebook that opens in your browser. Free, open source, local-first: no account, no cloud.
 
-[![Live Notebook in 50 seconds: in Claude Code desktop, an answer scrolls away and the Save to notebook button under it keeps it as a Markdown file; a student keeps every explanation, adds their own notes, writes new ones and exports a notebook](docs/media/live-notebook-poster.jpg)](https://amberwjl.github.io/live-claude-notebook/)
+[![Live Notebook in 49 seconds: in Claude Code desktop, a developer designs a feature with Claude; the Save to notebook button under a reply keeps an insight as a Markdown file, a side question's answer is buried by the chat and rescued the same way, and the notebook exports as a design doc](docs/media/live-notebook-poster.jpg)](https://amberwjl.github.io/live-claude-notebook/)
 
-**[▶ Watch the 50-second film](https://amberwjl.github.io/live-claude-notebook/)** ([MP4](docs/media/live-notebook.mp4), with sound)
+**[▶ Watch the 49-second film](https://amberwjl.github.io/live-claude-notebook/)** ([MP4](docs/media/live-notebook.mp4), with sound)
 
 ![The Live Notebook web notebook: notebooks and notes in a sidebar, and a saved reply with a code block open](docs/media/web-notebook.png)
 

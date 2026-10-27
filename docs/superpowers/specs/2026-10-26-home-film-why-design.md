@@ -22,11 +22,11 @@ Six scenes; the old Sources scene ("every session, one folder") is cut, and its 
 |---|---|---|
 | desktop | 660 | 22 |
 | find | 140 | 4.7 |
-| yours | ≈ 240 (computed) | 8 |
+| yours | 246 (computed) | 8.2 |
 | export | 165 | 5.5 |
 | local | 130 | 4.3 |
 | end | 140 | 4.7 |
-| **total** | **≈ 1475** | **≈ 49** |
+| **total** | **1481** | **49.4** |
 
 ### Desktop (660 frames)
 
@@ -59,8 +59,8 @@ Beats:
 | 400 | its button glows; 404 the cursor comes back |
 | 428 | click Save to notebook; the pane switches to the second draft (*Optimistic vs pessimistic locking*, Type **↗ Learning**), no slide |
 | 478 | click Save; 481 saved. Toast *Saved to Design: Optimistic vs pessimistic locking*. The pane lists DESIGN · 2: ◉ Model the question, not the table · ↗ Optimistic vs pessimistic locking |
-| 540 | the window drifts away; the learning's file card springs in from its pane row, the insight's card peeking behind it (offset up-left, dimmed) |
-| 566 | front matter types in, a line every 7 frames (8 lines); 632 the body fades in |
+| 518 | the window drifts away; the learning's file card springs in from its pane row, the insight's card peeking behind it (offset up-right, dimmed) |
+| 544 | front matter types in, a line every 7 frames (8 lines); 608 the body fades in, and holds until the scene fades at 648 |
 
 The file card: `Design/optimistic-vs-pessimistic-locking--7c1e4b2a.md`, front matter `title: "Optimistic vs pessimistic locking"`, `folder: "Design"`, `type: learning`, `tags: ["concurrency", "sharing"]`, `captured: whole_message`, `role: assistant`; body `## Optimistic vs pessimistic locking` and its first line. Behind it: `Design/model-the-question-not-the-table--3f2a91c0.md`.
 
@@ -75,7 +75,7 @@ Captions (top left, 50px, as today):
 | 296 | …and the chat buries it. |
 | 380 | Which one was it again? |
 | 432 | There's a button under every reply. |
-| 550 | Saved as *plain Markdown files.* |
+| 528 | Saved as *plain Markdown files.* |
 
 ### Find (140 frames)
 
@@ -139,9 +139,11 @@ Unchanged: the mark and name, *Keep the answers worth keeping.*, the two install
 ## Code
 
 - `video/src/cues.mjs`: `SCENES` without `sources`; `DESKTOP` rewritten with `messages: [{ at, role }]`, `glow`, `cursorIn`, `clickButton`, `clickSave`, `saved` as two-element arrays, `paneOpen` once, `race`, `rewind`, `morph`, `typing`, `step`, `lines`, `body`; `FIND.word = 'sharing'`; `YOURS` texts replaced (timings still computed); `SOURCES` and `sourceShots` removed.
+- `video/src/story.ts`: what the film is about, shared by every scene: the notebook's name, the two kept notes (title, text, type, file name, tags), the other Design notes, and a note's front matter.
 - `video/src/scenes/Desktop.tsx` (446 lines, growing) becomes `video/src/scenes/desktop/`:
+  - `layout.ts`: the window's geometry.
   - `index.tsx`: the scene, the window, scroll and cursor timeline, captions.
-  - `script.tsx`: the messages (bodies zipped with the cues' `messages`, lengths asserted equal), the two kept notes' titles and texts, front matter.
+  - `script.tsx`: the messages (bodies zipped with the cues' `messages`, lengths asserted equal), their rows.
   - `Chrome.tsx`: sidebar, composer, Save to notebook button, toast.
   - `Pane.tsx`: the Live Notebook pane: a draft (which note, which type) or the notebook list with one or two notes.
   - `FileCard.tsx`: the `.md` card with typing front matter, and the dimmed card behind it.
