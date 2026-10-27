@@ -166,7 +166,9 @@ export const Desktop: React.FC = () => {
             {MESSAGES.map((message, i) => {
               const shown = ease(frame, Q.messages[i].at, Q.messages[i].at + 8)
               const k = message.kept
-              const lit = k === undefined ? 0 : ease(frame, Q.glow[k], Q.glow[k] + 18)
+              // The button is in its hover look while the cursor is on it: from just before the click until the cursor leaves for the pane's Save.
+              const leaves = k === 0 ? Q.paneOpen[1] + 6 : Q.clickButton[1] + 8
+              const hover = k === undefined ? 0 : ease(frame, Q.hover[k], Q.hover[k] + 4) * (1 - ease(frame, leaves, leaves + 4))
               const isPressed = k !== undefined && frame >= Q.clickButton[k] && frame < Q.clickButton[k] + 6
               return (
                 <div
@@ -186,7 +188,7 @@ export const Desktop: React.FC = () => {
                   }}
                 >
                   <div style={message.role === 'user' ? { padding: '14px 20px', borderRadius: 16, background: '#33332f' } : { padding: '2px 4px' }}>{message.body}</div>
-                  {message.role === 'agent' && <SaveButton lit={lit} pressed={isPressed} />}
+                  {message.role === 'agent' && <SaveButton hover={hover} pressed={isPressed} />}
                 </div>
               )
             })}

@@ -58,8 +58,8 @@ export const Composer: React.FC<{ column: { left: number; width: number } }> = (
   </div>
 )
 
-/** The Mod's Save to notebook button under a reply, lit from 0 to 1. */
-export const SaveButton: React.FC<{ lit: number; pressed?: boolean }> = ({ lit, pressed = false }) => (
+/** The Mod's Save to notebook button under a reply: the desktop's grey secondary button; under the pointer (`hover` 0 → 1) it lightens and its label takes the accent. */
+export const SaveButton: React.FC<{ hover: number; pressed?: boolean }> = ({ hover, pressed = false }) => (
   <div
     style={{
       position: 'absolute',
@@ -74,11 +74,11 @@ export const SaveButton: React.FC<{ lit: number; pressed?: boolean }> = ({ lit, 
       gap: 8,
       padding: '0 14px',
       borderRadius: 8,
-      border: `1px solid rgba(224,138,106,${0.15 + lit * 0.85})`,
-      background: pressed ? 'rgba(224,138,106,.28)' : `rgba(224,138,106,${lit * 0.12})`,
-      color: lit > 0.5 ? C.accent : C.faint,
+      border: `1px solid ${C.line}`,
+      background: pressed ? '#454540' : hover > 0.5 ? '#3a3a35' : '#2c2c29',
+      color: hover > 0.5 ? C.accent : C.text,
       fontSize: 16,
-      fontWeight: 600,
+      fontWeight: 500,
       transform: `scale(${pressed ? 0.95 : 1})`,
     }}
   >

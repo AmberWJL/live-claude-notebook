@@ -70,8 +70,8 @@ export const DESKTOP = {
   rush: 7,
   /** The two replies kept, as message indexes: the insight, then the learning. */
   kept: [1, 3],
-  /** Each save, in order: the button under the reply lights, the cursor comes, click, the pane's Save, saved. */
-  glow: [64, 400],
+  /** Each save, in order: the cursor comes, reaches the button under the reply (its hover look from here until it leaves), click, the pane's Save, saved. */
+  hover: [94, 422],
   cursorIn: [70, 404],
   clickButton: [100, 428],
   clickSave: [150, 478],

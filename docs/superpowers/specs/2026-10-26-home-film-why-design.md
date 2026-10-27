@@ -45,18 +45,18 @@ Messages and when they appear (frames from the scene's start):
 | 282 | you | Implement it. |
 | 296 + 7·n | the rush, 10 messages | Ship it in small PRs. · Added the migration for grants. · Sheet component: WhoCanSee.tsx. · Tests? · 212 of 212 pass. · Wired the version check; retry once. · Share links too? · Links are grants with principal = link:… · Rebased onto main; no conflicts. · Opened the pull request. |
 
-Every Claude reply has the Save to notebook button under it, right-aligned as the Mod draws it.
+Every Claude reply has the Save to notebook button under it, right-aligned as the Mod draws it: the desktop's grey secondary button, which only changes under the pointer (lighter grey, label in the accent), never before.
 
 Beats:
 
 | at | what |
 |---|---|
-| 64 | the button under the insight glows; 70 the cursor comes in |
+| 70 | the cursor comes in; 94 it reaches the button under the insight, which takes its hover look (grey, label in the accent) until the cursor leaves |
 | 100 | click Save to notebook; 102–134 the pane slides in with the draft: *← Design / Model the question, not the table*, Notebook **Design**, Type **◉ Insight** |
 | 150 | click Save; 153 saved. Toast *Saved to Design: Model the question, not the table*. The pane shows the notebook: DESIGN · 1, then PAYMENTS · OPS with two faded titles. The pane stays open from here. |
 | 294–366 | the rush races the chat to the bottom (motion blur as today) |
 | 378–414 | the scroll rewinds, hunting, and lands with the locking reply centred |
-| 400 | its button glows; 404 the cursor comes back |
+| 404 | the cursor comes back; 422 it reaches the button, hover look again |
 | 428 | click Save to notebook; the pane switches to the second draft (*Optimistic vs pessimistic locking*, Type **↗ Learning**), no slide |
 | 478 | click Save; 481 saved. Toast *Saved to Design: Optimistic vs pessimistic locking*. The pane lists DESIGN · 2: ◉ Model the question, not the table · ↗ Optimistic vs pessimistic locking |
 | 518 | the window drifts away; the learning's file card springs in from its pane row, the insight's card peeking behind it (offset up-right, dimmed) |
@@ -131,14 +131,14 @@ Unchanged: the mark and name, *Keep the answers worth keeping.*, the two install
 
 `scripts/soundtrack.mjs` keeps its music and its instruments; only the cue hookup changes:
 
-- The desktop sequence (glow, click, pane whoosh, click, chime) plays twice, driven by arrays in the cues; the pane whoosh only on the first.
+- The desktop sequence (hover, click, pane whoosh, click, chime) plays twice, driven by arrays in the cues; the pane whoosh only on the first.
 - Message pops take the speaker from the cues (`role`), not from index parity.
 - The plucks for notes landing in the folder go with the Sources scene.
 - The half-time pulse runs from the start of Find to the start of Local (Find, Yours, Export).
 
 ## Code
 
-- `video/src/cues.mjs`: `SCENES` without `sources`; `DESKTOP` rewritten with `messages: [{ at, role }]`, `glow`, `cursorIn`, `clickButton`, `clickSave`, `saved` as two-element arrays, `paneOpen` once, `race`, `rewind`, `morph`, `typing`, `step`, `lines`, `body`; `FIND.word = 'sharing'`; `YOURS` texts replaced (timings still computed); `SOURCES` and `sourceShots` removed.
+- `video/src/cues.mjs`: `SCENES` without `sources`; `DESKTOP` rewritten with `messages: [{ at, role }]`, `hover`, `cursorIn`, `clickButton`, `clickSave`, `saved` as two-element arrays, `paneOpen` once, `race`, `rewind`, `morph`, `typing`, `step`, `lines`, `body`; `FIND.word = 'sharing'`; `YOURS` texts replaced (timings still computed); `SOURCES` and `sourceShots` removed.
 - `video/src/story.ts`: what the film is about, shared by every scene: the notebook's name, the two kept notes (title, text, type, file name, tags), the other Design notes, and a note's front matter.
 - `video/src/scenes/Desktop.tsx` (446 lines, growing) becomes `video/src/scenes/desktop/`:
   - `layout.ts`: the window's geometry.

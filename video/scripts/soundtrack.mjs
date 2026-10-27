@@ -162,10 +162,10 @@ whoosh(at(DESKTOP.race[0]), at(DESKTOP.race[1] - DESKTOP.race[0]) + 0.2, 500, 70
 // The rewind: the air runs back down, with a falling tape tone.
 whoosh(at(DESKTOP.rewind[0]), at(DESKTOP.rewind[1] - DESKTOP.rewind[0]), 7000, 300, 0.12)
 tone({ start: at(DESKTOP.rewind[0]), dur: at(DESKTOP.rewind[1] - DESKTOP.rewind[0]), freq: 520, to: 140, amp: 0.025, attack: 0.05, release: 0.2 })
-// Each save: the button under the reply lights up, a click, a click on the pane's Save, and the chime, a step higher the second time.
+// Each save: the pointer reaches the button under the reply, a click, a click on the pane's Save, and the chime, a step higher the second time.
 DESKTOP.saved.forEach((saved, k) => {
-  tone({ start: at(DESKTOP.glow[k]), dur: 0.5, freq: NOTE('A5'), amp: 0.025, attack: 0.02, decay: 0.45, partials: [[1, 1], [2, 0.3]] })
-  tone({ start: at(DESKTOP.glow[k]) + 0.08, dur: 0.5, freq: NOTE('E6'), amp: 0.02, attack: 0.02, decay: 0.45 })
+  tone({ start: at(DESKTOP.hover[k]), dur: 0.5, freq: NOTE('A5'), amp: 0.025, attack: 0.02, decay: 0.45, partials: [[1, 1], [2, 0.3]] })
+  tone({ start: at(DESKTOP.hover[k]) + 0.08, dur: 0.5, freq: NOTE('E6'), amp: 0.02, attack: 0.02, decay: 0.45 })
   click(at(DESKTOP.clickButton[k]), -0.2)
   click(at(DESKTOP.clickSave[k]), 0.5)
   chime(at(saved), NOTE(k === 0 ? 'A5' : 'B5'))
