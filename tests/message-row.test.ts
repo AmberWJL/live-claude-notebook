@@ -38,17 +38,15 @@ describe('save control under assistant replies', () => {
     }
   })
 
-  test('on a desktop the save control is an outlined pill, faint at rest and the accent under the pointer; the terminal keeps its button', async ($, on) => {
+  test('on a desktop the save control is the standard grey secondary button, its label the accent under the pointer; the terminal keeps its button', async ($, on) => {
     fakeStore(on)
     fakeFs(on)
     fakeEngine(on, MESSAGES)
     mock.clock(on)
     const desktop = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'AssistantMessage', requestId: 'msg-1', props: BLOCK })
-    const pill = await desktop.find({ key: 'save-pill' })
-    expect(pill?.props).toMatchObject({ borderStyle: 'round', borderColor: 'claude', borderDimColor: true })
-    expect(hoverOf(await desktop.drawn(), 'save-pill')).toEqual({ borderColor: 'claude', borderDimColor: false, backgroundColor: '#d977571f' })
-    expect(hoverOf(await desktop.drawn(), 'save')).toEqual({ color: 'claude', dimColor: false })
-    expect((await desktop.find({ key: 'save' }))?.props).toMatchObject({ plain: true, dimColor: true })
+    expect(await desktop.find({ key: 'save-pill' })).toBeUndefined()
+    expect(hoverOf(await desktop.drawn(), 'save')).toEqual({ color: 'claude' })
+    expect((await desktop.find({ key: 'save' }))?.props).toMatchObject({ variant: 'secondary' })
     await desktop.unmount()
     const terminal = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AssistantMessage', requestId: 'msg-1', props: BLOCK })
     expect(await terminal.find({ key: 'save-pill' })).toBeUndefined()
