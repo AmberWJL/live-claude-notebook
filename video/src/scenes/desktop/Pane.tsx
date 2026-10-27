@@ -41,16 +41,31 @@ const Draft: React.FC<{ note: Note; pressed: boolean }> = ({ note, pressed }) =>
   </>
 )
 
-/** The notebook after a save: the Design notes so far, then the other notebooks. Its rows lift out into files at the morph. */
+/**
+ * The notebook after a save, as the Mod draws it: Write Note in Web and
+ * New Notebook, the search field, the type filters, then the Design notes so
+ * far and the other notebooks. The note rows lift out into files at the morph.
+ */
 const List: React.FC<{ count: number; frame: number }> = ({ count, frame }) => (
   <>
-    <div style={{ display: 'flex', gap: 22, height: 44, alignItems: 'center', fontSize: 16, color: C.muted }}>
+    <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+      <span style={{ padding: '7px 14px', borderRadius: 8, background: C.text, color: C.ground, fontSize: 15, fontWeight: 650 }}>✎ Write Note in Web</span>
+      <span style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${C.line}`, background: '#2c2c29', color: C.text, fontSize: 15, fontWeight: 500 }}>+ New Notebook</span>
+    </div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14 }}>
+      <svg width={18} height={18} viewBox="0 0 24 24">
+        <circle cx="10.5" cy="10.5" r="7" fill="none" stroke={C.muted} strokeWidth="2.4" />
+        <path d="M16 16 L22 22" stroke={C.muted} strokeWidth="2.4" strokeLinecap="round" />
+      </svg>
+      <div style={{ flex: 1, height: 38, borderRadius: 9, border: `1px solid ${C.line}`, background: '#242422', display: 'flex', alignItems: 'center', padding: '0 12px', boxSizing: 'border-box', fontSize: 15, color: C.faint }}>Search notes…</div>
+    </div>
+    <div style={{ display: 'flex', gap: 22, height: 44, marginTop: 6, alignItems: 'center', fontSize: 16, color: C.muted }}>
       <span style={{ color: C.text }}>All notes</span>
       <span>◉ Insights</span>
       <span>↗ Learnings</span>
       <span>▤ References</span>
     </div>
-    <div style={{ marginTop: 24, display: 'flex', justifyContent: 'space-between', fontSize: 14, letterSpacing: '0.1em', color: C.faint }}>
+    <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', fontSize: 14, letterSpacing: '0.1em', color: C.faint }}>
       <span>{NOTEBOOK.toUpperCase()}</span>
       <span>{count}</span>
     </div>

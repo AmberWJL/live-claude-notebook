@@ -28,8 +28,8 @@ export const PANE_LEFT = WIN.left + WIN.width - PANE
 export const SAVE_BUTTON = { x: PANE_LEFT + PANE - 96, y: WIN.top + 58 }
 /** The two note rows in the pane's list, on screen: where the file cards lift out from. */
 export const NOTE_ROWS = [
-  { x: PANE_LEFT + 22, y: WIN.top + 142 },
-  { x: PANE_LEFT + 22, y: WIN.top + 230 },
+  { x: PANE_LEFT + 22, y: WIN.top + 240 },
+  { x: PANE_LEFT + 22, y: WIN.top + 328 },
 ]
 /** Where the note's file card lands. */
 export const CARD = { left: 140, top: 250, width: 860, height: 590 }

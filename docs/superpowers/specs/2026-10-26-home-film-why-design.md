@@ -53,7 +53,7 @@ Beats:
 |---|---|
 | 70 | the cursor comes in; 94 it reaches the button under the insight, which takes its hover look (grey, label in the accent) until the cursor leaves |
 | 100 | click Save to notebook; 102–134 the pane slides in with the draft: *← Design / Model the question, not the table*, Notebook **Design**, Type **◉ Insight** |
-| 150 | click Save; 153 saved. Toast *Saved to Design: Model the question, not the table*. The pane shows the notebook: DESIGN · 1, then PAYMENTS · OPS with two faded titles. The pane stays open from here. |
+| 150 | click Save; 153 saved. Toast *Saved to Design: Model the question, not the table*. The pane shows the notebook as the Mod draws it: Write Note in Web and + New Notebook, the search field, the type filters, DESIGN · 1, then PAYMENTS · OPS with two faded titles. The pane stays open from here. |
 | 294–366 | the rush races the chat to the bottom (motion blur as today) |
 | 378–414 | the scroll rewinds, hunting, and lands with the locking reply centred |
 | 404 | the cursor comes back; 422 it reaches the button, hover look again |
