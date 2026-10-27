@@ -4,6 +4,7 @@ import type { SourceReference } from '../src/types'
 import { NotebookError } from '../src/domain/errors'
 import { NotebookService } from '../src/services/notebook-service'
 import { InMemoryNotebookRepository } from '../src/storage/notebook-repository'
+import { HostStoreNotebookRepository, type HostStore } from '../src/storage/host-store-adapter'
 
 function serviceWith(repository = new InMemoryNotebookRepository()) {
   let clock = 1_000
@@ -119,5 +120,184 @@ describe('NotebookService', () => {
     expect((await service.update(derived.id, { content: 'new first line' })).title).toBe('new first line')
     const custom = await service.create({ title: 'Custom', content: 'x', source })
     expect((await service.update(custom.id, { content: 'y' })).title).toBe('Custom')
+  })
+})
+
+/**
+ * One `$.store` shared by several sessions, held in a Map. `pauseAfterRead`
+ * stops the next read of a key after it has read the value, until released:
+ * the moment another session's write can land between a read and a write.
+ */
+function sharedStore() {
+  const data = new Map<string, unknown>()
+  let armed: { key: string; reached: () => void; gate: Promise<void> } | undefined
+  const store: HostStore = {
+    get: async key => {
+      const value = structuredClone(data.get(key))
+      if (armed?.key === key) {
+        const pause = armed
+        armed = undefined
+        pause.reached()
+        await pause.gate
+      }
+      return value
+    },
+    set: async (key, value) => {
+      data.set(key, structuredClone(value))
+    },
+    delete: async key => {
+      data.delete(key)
+    },
+    keys: async () => [...data.keys()],
+  }
+  return {
+    data,
+    /** A service of its own over the shared store, as another session has. */
+    session() {
+      let clock = 1_000
+      return new NotebookService({
+        repository: new HostStoreNotebookRepository(store),
+        newId: () => crypto.randomUUID(),
+        now: () => (clock += 1),
+      })
+    },
+    pauseAfterRead(key: string) {
+      let reached = () => {}
+      let release = () => {}
+      const isReached = new Promise<void>(resolve => (reached = resolve))
+      const gate = new Promise<void>(resolve => (release = resolve))
+      armed = { key, reached, gate }
+      return { isReached, release }
+    },
+  }
+}
+
+describe('NotebookService across sessions', () => {
+  test('a tag update that read the note before another session saved a new body keeps that body', async () => {
+    const shared = sharedStore()
+    const tagger = shared.session()
+    const editor = shared.session()
+    const entry = await tagger.create({ content: 'First body.', source })
+
+    const pause = shared.pauseAfterRead(`entry:${entry.id}`)
+    const tagging = tagger.update(entry.id, { tags: ['caching'] })
+    await pause.isReached
+    await editor.update(entry.id, { content: 'Second body, saved in another session.' })
+    pause.release()
+    const tagged = await tagging
+
+    expect(tagged.content).toBe('Second body, saved in another session.')
+    expect(tagged.tags).toEqual(['caching'])
+    const stored = await editor.getById(entry.id)
+    expect(stored?.content).toBe('Second body, saved in another session.')
+    expect(stored?.tags).toEqual(['caching'])
+  })
+
+  test('two sessions adding notebooks at once both keep theirs', async () => {
+    const shared = sharedStore()
+    const first = shared.session()
+    const second = shared.session()
+
+    const pause = shared.pauseAfterRead('folders')
+    const adding = first.addFolder('Alpha')
+    await pause.isReached
+    await second.addFolder('Beta')
+    pause.release()
+    await adding
+
+    const folders = await second.folders()
+    expect(folders.names).toEqual(['General', 'Beta', 'Alpha'])
+    expect(folders.last).toBe('Alpha')
+  })
+
+  test('filing a note into a new notebook keeps a notebook another session added meanwhile', async () => {
+    const shared = sharedStore()
+    const first = shared.session()
+    const second = shared.session()
+    const entry = await first.create({ content: 'Roll out to 5% first.', source })
+
+    const pause = shared.pauseAfterRead('folders')
+    const moving = first.update(entry.id, { folder: 'Ops' })
+    await pause.isReached
+    await second.addFolder('Ideas')
+    pause.release()
+    expect((await moving).folder).toBe('Ops')
+
+    const folders = await second.folders()
+    expect(folders.names).toEqual(['General', 'Ideas', 'Ops'])
+    expect(folders.last).toBe('Ops')
+  })
+
+  test('a classification decided before the person set tags leaves their tags', async () => {
+    const shared = sharedStore()
+    const classifier = shared.session()
+    const person = shared.session()
+    const entry = await classifier.create({ content: 'Keep the TTL under one minute.', source })
+
+    const pause = shared.pauseAfterRead(`entry:${entry.id}`)
+    const classifying = classifier.updateWith(entry.id, current =>
+      current.tags.length === 0 ? { tags: ['from-model'], type: 'insight' } : undefined,
+    )
+    await pause.isReached
+    await person.update(entry.id, { tags: ['mine'] })
+    pause.release()
+
+    expect(await classifying).toBeUndefined()
+    const stored = await person.getById(entry.id)
+    expect(stored?.tags).toEqual(['mine'])
+    expect(stored?.type).toBe('other')
+  })
+
+  test('updateWith applies its patch when the note is as it expects, and is undefined for a missing note', async () => {
+    const { service } = serviceWith()
+    const entry = await service.create({ content: 'A note.', source })
+    const classified = await service.updateWith(entry.id, current => (current.tags.length === 0 ? { tags: ['ttl'] } : undefined))
+    expect(classified?.tags).toEqual(['ttl'])
+    expect(await service.updateWith('missing', () => ({ tags: ['x'] }))).toBeUndefined()
+  })
+
+  test('a note that keeps changing under every try ends in a conflict error, not a lost edit', async () => {
+    class AlwaysMoved extends InMemoryNotebookRepository {
+      override async writeIf(): Promise<boolean> {
+        return false
+      }
+    }
+    const repository = new AlwaysMoved()
+    const { service } = serviceWith(repository)
+    const entry = await service.create({ content: 'A note.', source })
+    await expect(service.update(entry.id, { title: 'Renamed' })).rejects.toThrow('Another session kept changing this note')
+    expect((await repository.read(entry.id))?.title).toBe('A note.')
+  })
+
+  test('every public write takes the lock once, never nested', async () => {
+    let holds = 0
+    let depth = 0
+    let deepest = 0
+    let clock = 1_000
+    const service = new NotebookService({
+      repository: new InMemoryNotebookRepository(),
+      newId: () => crypto.randomUUID(),
+      now: () => (clock += 1),
+      lock: async work => {
+        holds += 1
+        depth += 1
+        deepest = Math.max(deepest, depth)
+        try {
+          return await work()
+        } finally {
+          depth -= 1
+        }
+      },
+    })
+    const entry = await service.create({ content: 'A note.', folder: 'Ops', source })
+    await service.update(entry.id, { content: 'Edited.', folder: 'Ideas' })
+    await service.setFile(entry.id, 'Ideas/a-note.md')
+    await service.archive(entry.id)
+    await service.addFolder('Later')
+    await service.removeFolder('Later')
+    expect(holds).toBe(6)
+    expect(deepest).toBe(1)
+    expect(await service.getById('missing')).toBeUndefined()
+    expect(holds).toBe(6)
   })
 })

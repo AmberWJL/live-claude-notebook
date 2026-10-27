@@ -70,6 +70,26 @@ notebook's tags are also kept in the store (`tags:<name>`). Folders are a
 also hold the messages around the capture and the project's full path;
 nothing reads those, and they are never written to a file.
 
+### Several sessions at once
+
+Every Claude Code session on the machine writes the same store. Each
+`$.store.set` is atomic on its own, but changing a record is a read and then
+a write, so two sessions could otherwise write over each other's change. Two
+things prevent that:
+
+- **The re-check.** The service writes a changed entry or `folders` record
+  only if the stored one is still the one it read. If another session got
+  there first, it makes the change again on the newer record. Changes that
+  depend on the record, such as the model's tags filling only empty tags,
+  are decided at that moment too (`updateWith`).
+- **The store lock.** Each write the service makes holds a lock directory,
+  `~/.claude/live-notebook/.store.lock`, so the re-check and the write of
+  one session never interleave with another's. `$.fs` cannot create a file
+  exclusively, so a short node script takes and gives it
+  (`src/core/store-lock.mjs`). A lock older than 15 seconds was left by a
+  session that stopped mid-write and is taken over. If the lock cannot be
+  had, the write still goes ahead on the re-check alone.
+
 ### The notes folder
 
 The folder (`LIVE_NOTEBOOK_HOME`, else `~/.claude/live-notebook`) holds

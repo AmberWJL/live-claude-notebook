@@ -5,6 +5,8 @@
 import type { On, SessionMessage } from 'claude-code'
 import { mock } from 'claude-code/testing'
 
+import { STORE_LOCK_SCRIPT } from '../src/core/store-lock.mjs'
+
 export const PLUGIN = 'live-notebook'
 export const PANE = 'live-notebook'
 export const HOME = '/home/t'
@@ -103,6 +105,8 @@ export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { t
   const prompts: string[] = []
   const commands: string[][] = []
   const copied: string[] = []
+  /** The store lock's runs, `take` or `give` and their arguments; kept out of `commands`. */
+  const locks: string[][] = []
   /** What the Save dialog answers: a path, or null for Cancel. */
   const dialog: { savePath: string | null } = { savePath: `${HOME}/Downloads/export.md` }
   /** The host: the Mac's appearance (`Dark`, or null for the light one, which sets no key) and the engine's theme row (null for none). */
@@ -152,8 +156,12 @@ export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { t
     }
   })
   on('process.run', async (_$, e) => {
-    commands.push([...e.argv])
     const argv = e.argv
+    if (argv[1] === '-e' && argv[2] === STORE_LOCK_SCRIPT) {
+      locks.push(argv.slice(3))
+      return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    commands.push([...e.argv])
     let stdout = ''
     if (argv[0] === 'node' && argv.includes('--launch')) {
       stdout = JSON.stringify({ port: 4321, pid: 999, url: 'http://127.0.0.1:4321', startedAt: 1 })
@@ -174,7 +182,7 @@ export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { t
     }
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  return { registered, opened, toasts, prompts, commands, copied, dialog, host }
+  return { registered, opened, toasts, prompts, commands, copied, dialog, host, locks }
 }
 
 export function entryKeys(data: Map<string, unknown>): string[] {

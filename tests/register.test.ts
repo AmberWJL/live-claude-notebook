@@ -268,6 +268,12 @@ describe('live-notebook hooks', () => {
     await clock.advance(5)
     expect(engine.prompts.filter(prompt => prompt.includes('title: <the title>'))).toHaveLength(1)
     await again.unmount()
+
+    // Every write to the shared store held the lock other sessions take, and gave back the token it took.
+    const takes = engine.locks.filter(args => args[0] === 'take')
+    expect(takes.length).toBeGreaterThan(0)
+    expect(takes.every(args => args[1] === `${HOME}/.claude/live-notebook/.store.lock`)).toBe(true)
+    expect(engine.locks.filter(args => args[0] === 'give').map(args => args[2])).toEqual(takes.map(args => args[2]))
   })
 
   test('edits made on the web come back: a changed file, a new note, a new notebook, a deleted note', async ($, on) => {
