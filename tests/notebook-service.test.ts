@@ -5,6 +5,7 @@ import { NotebookError } from '../src/domain/errors'
 import { NotebookService } from '../src/services/notebook-service'
 import { InMemoryNotebookRepository } from '../src/storage/notebook-repository'
 import { HostStoreNotebookRepository, type HostStore } from '../src/storage/host-store-adapter'
+import { STORE_LOCK_HELD, withStoreLock } from '../src/core/store-lock.mjs'
 
 function serviceWith(repository = new InMemoryNotebookRepository()) {
   let clock = 1_000
@@ -130,11 +131,15 @@ describe('NotebookService', () => {
  */
 function sharedStore() {
   const data = new Map<string, unknown>()
-  let armed: { key: string; reached: () => void; gate: Promise<void> } | undefined
+  let armed: { key: string; skip: number; reached: () => void; gate: Promise<void> } | undefined
+  /** The lock directory every session shares: who holds it, if anyone. */
+  let lockOwner: string | undefined
+  let tokens = 0
   const store: HostStore = {
     get: async key => {
       const value = structuredClone(data.get(key))
-      if (armed?.key === key) {
+      if (armed?.key === key && armed.skip > 0) armed.skip -= 1
+      else if (armed?.key === key) {
         const pause = armed
         armed = undefined
         pause.reached()
@@ -152,21 +157,48 @@ function sharedStore() {
   }
   return {
     data,
-    /** A service of its own over the shared store, as another session has. */
-    session() {
+    /**
+     * A service of its own over the shared store, as another session has;
+     * with `isLocked`, it takes the shared store lock through `withStoreLock`,
+     * its script answered by `lockOwner`.
+     */
+    session(options: { isLocked?: boolean } = {}) {
       let clock = 1_000
       return new NotebookService({
         repository: new HostStoreNotebookRepository(store),
         newId: () => crypto.randomUUID(),
         now: () => (clock += 1),
+        ...(options.isLocked === true
+          ? {
+              lock: <T>(work: () => Promise<T>) =>
+                withStoreLock(
+                  {
+                    dir: '/home/t/.claude/live-notebook/.store.lock',
+                    run: async ([verb, , token]) => {
+                      if (verb === 'take' && lockOwner !== undefined) return { exitCode: STORE_LOCK_HELD }
+                      if (verb === 'take') lockOwner = token
+                      if (verb === 'give' && lockOwner === token) lockOwner = undefined
+                      return { exitCode: 0 }
+                    },
+                    sleep: async () => {},
+                    every: () => () => {},
+                    newToken: () => `token-${(tokens += 1)}`,
+                    waitMs: 200,
+                    retryMs: 50,
+                  },
+                  work,
+                ),
+            }
+          : {}),
       })
     },
-    pauseAfterRead(key: string) {
+    /** Pauses the read of `key` after `skip` reads of it go by. */
+    pauseAfterRead(key: string, options: { skip?: number } = {}) {
       let reached = () => {}
       let release = () => {}
       const isReached = new Promise<void>(resolve => (reached = resolve))
       const gate = new Promise<void>(resolve => (release = resolve))
-      armed = { key, reached, gate }
+      armed = { key, skip: options.skip ?? 0, reached, gate }
       return { isReached, release }
     },
   }
@@ -188,6 +220,28 @@ describe('NotebookService across sessions', () => {
 
     expect(tagged.content).toBe('Second body, saved in another session.')
     expect(tagged.tags).toEqual(['caching'])
+    const stored = await editor.getById(entry.id)
+    expect(stored?.content).toBe('Second body, saved in another session.')
+    expect(stored?.tags).toEqual(['caching'])
+  })
+
+  test('a session that cannot get the lock saves nothing, so a writer held after its last read cannot undo its save', async () => {
+    const shared = sharedStore()
+    const tagger = shared.session({ isLocked: true })
+    const editor = shared.session({ isLocked: true })
+    const entry = await tagger.create({ content: 'First body.', source })
+
+    // The tagger's update reads the note, then reads it again just before its write: hold it there.
+    const pause = shared.pauseAfterRead(`entry:${entry.id}`, { skip: 1 })
+    const tagging = tagger.update(entry.id, { tags: ['caching'] })
+    await pause.isReached
+    await expect(editor.update(entry.id, { content: 'Second body, saved in another session.' })).rejects.toThrow('nothing was saved')
+    expect((shared.data.get(`entry:${entry.id}`) as { content: string }).content).toBe('First body.')
+    pause.release()
+    await tagging
+
+    // The refused session tries again once the lock is free, and both changes stand.
+    await editor.update(entry.id, { content: 'Second body, saved in another session.' })
     const stored = await editor.getById(entry.id)
     expect(stored?.content).toBe('Second body, saved in another session.')
     expect(stored?.tags).toEqual(['caching'])

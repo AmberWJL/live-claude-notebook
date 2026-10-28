@@ -3,6 +3,7 @@
 export const STORE_LOCK_DIR: '.store.lock'
 export const STORE_LOCK_HELD: 3
 export const STORE_LOCK_STALE_MS: number
+export const STORE_LOCK_REFRESH_MS: number
 export const STORE_LOCK_WAIT_MS: number
 export const STORE_LOCK_RETRY_MS: number
 export const STORE_LOCK_SCRIPT: string
@@ -13,11 +14,19 @@ export type StoreLock = {
   /** Runs `node -e STORE_LOCK_SCRIPT ...args` and resolves its exit code. */
   run: (args: string[]) => Promise<{ exitCode: number }>
   sleep: (ms: number) => Promise<void>
+  /** Calls `beat` every `ms` milliseconds until the returned function is called. */
+  every: (ms: number, beat: () => Promise<void>) => () => void
   /** A fresh token per hold, so a holder never gives back someone else's lock. */
   newToken: () => string
   waitMs?: number
   retryMs?: number
   staleMs?: number
+  refreshMs?: number
+}
+
+export class StoreLockError extends Error {
+  constructor(reason: 'held' | 'unavailable', message: string)
+  readonly reason: 'held' | 'unavailable'
 }
 
 export function withStoreLock<T>(lock: StoreLock, work: () => Promise<T>): Promise<T>

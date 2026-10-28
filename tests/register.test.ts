@@ -442,6 +442,28 @@ describe('live-notebook hooks', () => {
     await ui.unmount()
   })
 
+  test('a save while another session holds the store keeps the draft and writes nothing', async ($, on) => {
+    const data = fakeStore(on)
+    fakeFs(on)
+    const engine = fakeEngine(on, [], { lockTakeExit: 3 })
+    const clock = mock.clock(on)
+    await $.session.start(START)
+    await $.command.run({ ...RUN, command: 'save', args: 'Wait for the other session.' })
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: PANE_PROPS })
+    const pressing = ui.press({ key: 'save' })
+    // The lock is tried every 50 ms for 3 s, then the save is refused.
+    for (let step = 0; step < 80; step++) await clock.advance(50)
+    await pressing
+    expect(await ui.find({ type: 'Text', text: /Another Claude Code session is saving/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /draft is still here/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Saved / })).toBeUndefined()
+    expect((await ui.find({ type: 'Button', key: 'draft-title' }))?.text).toBe('Wait for the other session.')
+    expect(entryKeys(data)).toEqual([])
+    expect(engine.locks.filter(args => args[0] === 'take').length).toBeGreaterThan(10)
+    expect(engine.locks.filter(args => args[0] === 'give')).toEqual([])
+    await ui.unmount()
+  })
+
   test('/save with no text and no selection opens no pane and says what to do instead', async ($, on) => {
     const data = fakeStore(on)
     fakeFs(on)

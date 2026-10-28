@@ -25,7 +25,7 @@ import type {
 import { NotebookError, messageOf } from '../src/domain/errors'
 import { defaultFolders } from '../src/domain/notebook-entry'
 import { aiModeOf, isNoteId, parseSourceFile, projectNameOf, sourcePathFor, type AiMode } from '../src/core/note-format.mjs'
-import { STORE_LOCK_DIR, STORE_LOCK_SCRIPT, withStoreLock } from '../src/core/store-lock.mjs'
+import { STORE_LOCK_DIR, STORE_LOCK_SCRIPT, StoreLockError, withStoreLock } from '../src/core/store-lock.mjs'
 import { classifyPrompt, parseClassification } from '../src/services/classify'
 import { EXPORT_FORMATS, formatOf } from '../src/services/export-markdown.mjs'
 import { deriveTitle } from '../src/utils/normalize-content'
@@ -247,28 +247,50 @@ function serviceOf($: Dollar): NotebookService {
  * Runs `work` while no other session writes the store: every session on this
  * machine shares it, and a read-modify-write is two store calls. The lock is
  * a directory under the home folder's `.claude/live-notebook`, whatever the
- * notes root, since the store is shared whatever the notes root. Without
- * node, `work` runs unlocked on the service's re-check alone.
+ * notes root, since the store is shared whatever the notes root. When the
+ * lock cannot be had, `work` does not run: a NotebookError `busy` says so,
+ * and the caller keeps what it was saving for another try.
  */
 async function holdStoreLock<T>($: Dollar, work: () => Promise<T>): Promise<T> {
-  let node: string
-  let dir: string
+  if (nodePath === undefined) nodePath = await nodeBinary($)
+  const node = nodePath
+  const dir = await storeLockDirOf($)
   try {
-    if (nodePath === undefined) nodePath = await nodeBinary($)
-    node = nodePath
-    dir = await storeLockDirOf($)
-  } catch {
-    return work()
+    return await withStoreLock(
+      {
+        dir,
+        run: args => hostRun($, [node, '-e', STORE_LOCK_SCRIPT, ...args], { timeoutMs: 5_000 }),
+        sleep: ms => new Promise<void>(resolve => void hostAfter($, ms, () => resolve())),
+        every: (ms, beat) => repeatEvery($, ms, beat),
+        newToken: () => crypto.randomUUID(),
+      },
+      work,
+    )
+  } catch (error) {
+    if (error instanceof StoreLockError) throw new NotebookError('busy', error.message)
+    throw error
   }
-  return withStoreLock(
-    {
-      dir,
-      run: args => hostRun($, [node, '-e', STORE_LOCK_SCRIPT, ...args], { timeoutMs: 5_000 }),
-      sleep: ms => $.clock.sleep(ms),
-      newToken: () => crypto.randomUUID(),
-    },
-    work,
-  )
+}
+
+/** Calls `beat` every `ms` until stopped, each wait starting after the last beat ends. */
+function repeatEvery($: Dollar, ms: number, beat: () => Promise<void>): () => void {
+  let isStopped = false
+  let timer: { cancel: () => void } | undefined
+  const arm = () => {
+    timer = hostAfter($, ms, () => {
+      if (!isStopped) void beat().finally(() => (isStopped ? undefined : arm()))
+    })
+  }
+  arm()
+  return () => {
+    isStopped = true
+    timer?.cancel()
+  }
+}
+
+/** Whether a write was refused because another session held the store lock; the caller tries again later. */
+function isBusy(error: unknown): boolean {
+  return error instanceof NotebookError && error.code === 'busy'
 }
 
 async function storeLockDirOf($: Dollar): Promise<string> {
@@ -564,13 +586,20 @@ async function classifyEntry($: Dollar, entryId: string, options: { withTitle?: 
   const { type, tags, title } = parseClassification(result.text)
   // Decided against the note as it is when written, not as it was before the model call: a
   // type, tags or title the person (or another session) set meanwhile stays.
-  const updated = await service.updateWith(entryId, current => {
-    const patch: { type?: EntryType; tags?: string[]; title?: string } = {}
-    if (type !== undefined && type !== 'other' && current.type === 'other') patch.type = type
-    if (tags.length > 0 && current.tags.length === 0) patch.tags = tags
-    if (withTitle && title !== undefined && hasDerivedTitle(current)) patch.title = title
-    return patch.type === undefined && patch.tags === undefined && patch.title === undefined ? undefined : patch
-  })
+  let updated: NotebookEntry | undefined
+  try {
+    updated = await service.updateWith(entryId, current => {
+      const patch: { type?: EntryType; tags?: string[]; title?: string } = {}
+      if (type !== undefined && type !== 'other' && current.type === 'other') patch.type = type
+      if (tags.length > 0 && current.tags.length === 0) patch.tags = tags
+      if (withTitle && title !== undefined && hasDerivedTitle(current)) patch.title = title
+      return patch.type === undefined && patch.tags === undefined && patch.title === undefined ? undefined : patch
+    })
+  } catch (error) {
+    // Another session held the store past the wait: this answer goes, and the note keeps what it has.
+    if (isBusy(error)) return
+    throw error
+  }
   if (updated === undefined) return
   try {
     await writeNoteFile($, updated)
@@ -758,9 +787,11 @@ async function importChanges($: Dollar, options: { force?: boolean } = {}): Prom
   const service = serviceOf($)
   const now = await hostNow($)
   let applied = 0
+  let isRefused = false
   // Notes written on the web have no type until a model gives them one, as a save in the pane does.
   const toClassify: string[] = []
   for (const action of actions) {
+    if (isRefused) break
     try {
       if (action.kind === 'folder') await service.ensureFolder(action.name)
       else if (action.kind === 'folder-gone') await service.removeFolder(action.name)
@@ -809,12 +840,18 @@ async function importChanges($: Dollar, options: { force?: boolean } = {}): Prom
       }
       applied += 1
     } catch (error) {
-      await setNotice($, { tone: 'error', text: `A note file could not be imported: ${messageOf(error)}` })
+      if (isBusy(error)) isRefused = true
+      else await setNotice($, { tone: 'error', text: `A note file could not be imported: ${messageOf(error)}` })
     }
   }
-  const next: Record<string, number> = {}
-  for (const file of files) next[file.path] = file.mtimeMs
-  await update($, knownAtom, () => next)
+  if (isRefused) {
+    // Another session held the store: nothing is marked as read, and the next scan plans these files again.
+    await update($, touchAtom, () => -1)
+  } else {
+    const next: Record<string, number> = {}
+    for (const file of files) next[file.path] = file.mtimeMs
+    await update($, knownAtom, () => next)
+  }
   if (applied > 0) await afterChange($)
   for (const id of toClassify) hostAfter($, 1, () => void classifyEntry($, id))
   return applied

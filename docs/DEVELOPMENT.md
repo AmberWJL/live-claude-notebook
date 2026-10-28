@@ -85,10 +85,20 @@ things prevent that:
 - **The store lock.** Each write the service makes holds a lock directory,
   `~/.claude/live-notebook/.store.lock`, so the re-check and the write of
   one session never interleave with another's. `$.fs` cannot create a file
-  exclusively, so a short node script takes and gives it
-  (`src/core/store-lock.mjs`). A lock older than 15 seconds was left by a
-  session that stopped mid-write and is taken over. If the lock cannot be
-  had, the write still goes ahead on the re-check alone.
+  exclusively, so a short node script takes, refreshes and gives it
+  (`src/core/store-lock.mjs`). A holder refreshes its lock every 5 seconds
+  while its write runs; a lock not refreshed for 15 seconds was left by a
+  session that is gone and is taken over.
+- **No write without the lock.** A write that cannot get the lock within
+  about 3 seconds, or cannot run the lock's script, is refused with a
+  NotebookError `busy`, and nothing is saved: a write made without the lock
+  could land between another session's last read and its write. The pane
+  keeps the draft and says to save again; a refused web import is planned
+  again on the next scan, and a refused classification is dropped.
+
+A process frozen outright (in a debugger, say) stops refreshing and can be
+taken over after 15 seconds. Closing that would take a conditional write in
+`$.store`, which the host does not offer.
 
 ### The notes folder
 

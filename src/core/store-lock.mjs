@@ -11,20 +11,30 @@
 export const STORE_LOCK_DIR = '.store.lock'
 /** The script's exit code when another session holds the lock. */
 export const STORE_LOCK_HELD = 3
-/** A lock older than this was left by a session that stopped mid-write; it is taken over. */
+/**
+ * A lock not refreshed for this long was left by a session that is gone (it
+ * ended, or the mod reloaded mid-write); it is taken over.
+ */
 export const STORE_LOCK_STALE_MS = 15_000
-/** How long a write waits for the lock before going ahead with the re-check alone. */
+/** How often a holder refreshes its lock while its write runs, well inside the stale time. */
+export const STORE_LOCK_REFRESH_MS = 5_000
+/**
+ * How long a write keeps trying for the lock before it is refused, counted
+ * in tries of STORE_LOCK_RETRY_MS: about this long, plus each try's own run.
+ */
 export const STORE_LOCK_WAIT_MS = 3_000
 /** The pause between two tries. */
 export const STORE_LOCK_RETRY_MS = 50
 
 /**
- * Run as `node -e STORE_LOCK_SCRIPT take <dir> <token> <staleMs>` or
- * `... give <dir> <token>`. `take` exits 0 when it took the lock and
- * STORE_LOCK_HELD when another holder has it. A stale lock is renamed aside
- * before it is removed, and put back if the one renamed turns out not to be
- * the one judged stale, so two sessions cannot both take it over. `give`
- * removes the lock only while the token in it is the giver's own.
+ * Run as `node -e STORE_LOCK_SCRIPT take <dir> <token> <staleMs>`, `... touch
+ * <dir> <token>` or `... give <dir> <token>`. `take` exits 0 when it took the
+ * lock and STORE_LOCK_HELD when another holder has it. A lock is stale when
+ * its directory's time is older than `staleMs`: its holder stopped
+ * refreshing it. A stale lock is renamed aside before it is removed, and put
+ * back if the one renamed turns out not to be the one judged stale, so two
+ * sessions cannot both take it over. `touch` refreshes the lock's time and
+ * `give` removes it, each only while the token in it is the caller's own.
  */
 export const STORE_LOCK_SCRIPT = `
 const fs = require('node:fs')
@@ -46,6 +56,12 @@ if (verb === 'give') {
   if (ownerOf(dir) === token) remove(dir)
   process.exit(0)
 }
+if (verb === 'touch') {
+  if (ownerOf(dir) !== token) process.exit(HELD)
+  const now = new Date()
+  fs.utimesSync(dir, now, now)
+  process.exit(0)
+}
 fs.mkdirSync(path.dirname(dir), { recursive: true })
 if (take()) process.exit(0)
 const held = ownerOf(dir)
@@ -62,12 +78,26 @@ remove(aside)
 process.exit(take() ? 0 : HELD)
 `
 
+/** Why a write did not run: another session kept the lock (`held`), or it could not be taken at all (`unavailable`). */
+export class StoreLockError extends Error {
+  /**
+   * @param {'held' | 'unavailable'} reason
+   * @param {string} message
+   */
+  constructor(reason, message) {
+    super(message)
+    this.name = 'StoreLockError'
+    this.reason = reason
+  }
+}
+
 /**
- * Runs `work` holding the lock at `lock.dir`, and gives it back after, even
- * when `work` throws. `lock.run` runs the script with the arguments after
- * `-e STORE_LOCK_SCRIPT`. When the lock cannot be had (node missing, or
- * another session keeps it past the wait), `work` runs anyway: a save is
- * never refused for the lock, and the service's re-check still stands.
+ * Runs `work` holding the lock at `lock.dir`, refreshing it every
+ * `refreshMs` while `work` runs, and gives it back after, even when `work`
+ * throws. `lock.run` runs the script with the arguments after `-e
+ * STORE_LOCK_SCRIPT`. When the lock cannot be had, `work` never runs and a
+ * StoreLockError says why: a write made without the lock could land between
+ * another session's last read and its write, and undo that write.
  *
  * @template T
  * @param {import('./store-lock.d.mts').StoreLock} lock
@@ -76,18 +106,25 @@ process.exit(take() ? 0 : HELD)
  */
 export async function withStoreLock(lock, work) {
   const token = lock.newToken()
-  const isHeld = await takeStoreLock(lock, token)
+  await takeStoreLock(lock, token)
+  const stop = lock.every(lock.refreshMs ?? STORE_LOCK_REFRESH_MS, () =>
+    lock.run(['touch', lock.dir, token]).then(
+      () => undefined,
+      () => undefined,
+    ),
+  )
   try {
     return await work()
   } finally {
-    if (isHeld) await lock.run(['give', lock.dir, token]).catch(() => undefined)
+    stop()
+    await lock.run(['give', lock.dir, token]).catch(() => undefined)
   }
 }
 
 /**
  * @param {import('./store-lock.d.mts').StoreLock} lock
  * @param {string} token
- * @returns {Promise<boolean>}
+ * @returns {Promise<void>}
  */
 async function takeStoreLock(lock, token) {
   const retryMs = lock.retryMs ?? STORE_LOCK_RETRY_MS
@@ -96,12 +133,14 @@ async function takeStoreLock(lock, token) {
     let exitCode
     try {
       ;({ exitCode } = await lock.run(['take', lock.dir, token, String(lock.staleMs ?? STORE_LOCK_STALE_MS)]))
-    } catch {
-      return false
+    } catch (error) {
+      throw new StoreLockError('unavailable', `The notebook's write lock could not be taken (${error instanceof Error ? error.message : String(error)}), so nothing was saved.`)
     }
-    if (exitCode === 0) return true
-    if (exitCode !== STORE_LOCK_HELD) return false
+    if (exitCode === 0) return
+    if (exitCode !== STORE_LOCK_HELD) {
+      throw new StoreLockError('unavailable', `The notebook's write lock could not be taken (its script exited ${exitCode}), so nothing was saved.`)
+    }
     if (attempt < tries - 1) await lock.sleep(retryMs)
   }
-  return false
+  throw new StoreLockError('held', 'Another Claude Code session is saving to the notebook, so nothing was saved. Try again in a moment.')
 }
