@@ -98,7 +98,7 @@ export function fakeFs(on: On, initial: Record<string, string> = {}) {
 }
 
 /** The rest of the engine beneath the plugin: session, commands, UI, model, processes. */
-export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { tags?: string; type?: string } = {}) {
+export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { tags?: string; type?: string; lockTakeExit?: number } = {}) {
   const registered: string[] = []
   const opened: string[] = []
   const toasts: string[] = []
@@ -158,8 +158,10 @@ export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { t
   on('process.run', async (_$, e) => {
     const argv = e.argv
     if (argv[1] === '-e' && argv[2] === STORE_LOCK_SCRIPT) {
+      // `lockTakeExit` 3 is another session holding the lock throughout.
       locks.push(argv.slice(3))
-      return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+      const exitCode = argv[3] === 'take' ? (options.lockTakeExit ?? 0) : 0
+      return { value: { exitCode, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     commands.push([...e.argv])
     let stdout = ''

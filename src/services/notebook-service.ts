@@ -17,8 +17,9 @@ export type NotebookServiceDeps = {
   newId: () => string
   now: () => Promise<number> | number
   /**
-   * Runs `work` while no other session writes the notebook. Every public
-   * write takes it once; without it, writes rely on the re-check alone.
+   * Runs `work` while no other session writes the notebook, or throws without
+   * running it when that cannot be had. Every public write takes it once. A
+   * service given none (a test, one session alone) relies on the re-check.
    */
   lock?: <T>(work: () => Promise<T>) => Promise<T>
 }
