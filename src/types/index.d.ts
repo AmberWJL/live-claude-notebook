@@ -121,6 +121,12 @@ export type EditDraft = {
   type?: EntryType
   /** The notebook as picked on the edit page; saved, and the file moved, only when it differs from the note's. */
   folder?: string
+  /**
+   * The note as the editor opened it: a save sends only the fields edited
+   * since, and refuses to write over text changed elsewhere meanwhile.
+   * Absent in an edit kept before it was a field.
+   */
+  base?: { content: string; title: string; type: EntryType; folder: string }
 }
 
 /** One transcript message, as the save control under a reply hands it to a whole-message draft. */

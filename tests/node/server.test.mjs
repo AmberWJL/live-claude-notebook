@@ -1,7 +1,7 @@
 // The web notebook server over HTTP, against a scratch notes folder: the file API, search, the trash, and the
 // guards that keep other sites and rebound domains out. Plain `node --test`, no Claude Code.
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { execFile, spawn, spawnSync } from 'node:child_process'
 import { request } from 'node:http'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,12 +9,16 @@ import { join } from 'node:path'
 import { after, before, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { STORE_LOCK_HELD, STORE_LOCK_SCRIPT } from '../../src/core/store-lock.mjs'
+
 const SERVER = fileURLToPath(new URL('../../web/server.mjs', import.meta.url))
 const WEB = fileURLToPath(new URL('../../web/static', import.meta.url))
 
 /** Starts a server on a free port; resolves with its address once it says it listens. */
 function start(args, env = {}) {
-  const child = spawn(process.execPath, [SERVER, '--serve', '--web', WEB, '--port', '0', ...args], {
+  // A scratch lock folder of its own, so a test never takes the lock real Claude Code sessions use.
+  const lock = mkdtempSync(join(tmpdir(), 'live-notebook-lock-'))
+  const child = spawn(process.execPath, [SERVER, '--serve', '--web', WEB, '--port', '0', '--lock', join(lock, '.store-lock'), ...args], {
     env: { ...process.env, ...env },
     stdio: ['ignore', 'pipe', 'inherit'],
   })
@@ -23,7 +27,7 @@ function start(args, env = {}) {
     child.stdout.on('data', chunk => {
       out += chunk
       const line = out.split('\n').find(one => one.startsWith('{'))
-      if (line !== undefined) resolve({ child, ...JSON.parse(line) })
+      if (line !== undefined) resolve({ child, lockDir: join(lock, '.store-lock'), ...JSON.parse(line) })
     })
     child.on('exit', code => reject(new Error(`server exited (${code})`)))
   })
@@ -151,5 +155,85 @@ test('the root comes from LIVE_NOTEBOOK_HOME when no --root is given', async () 
   } finally {
     second.child.kill()
     rmSync(other, { recursive: true, force: true })
+  }
+})
+
+/** The lock script, as a Claude Code session runs it, against a server's lock folder. */
+function lockStep(lockArgs) {
+  const run = spawnSync(process.execPath, ['-e', STORE_LOCK_SCRIPT, ...lockArgs], { encoding: 'utf8' })
+  return { exitCode: run.status, stdout: run.stdout.trim() }
+}
+
+test('a page save from an older version keeps the newer file and keeps the page text as a note of its own', async () => {
+  const created = await (await call('POST', '/api/note', { folder: 'Versions', content: 'First text.' })).json()
+  const path = encodeURIComponent(created.path)
+  const opened = await (await call('GET', `/api/note?path=${path}`)).json()
+  assert.equal(opened.version, created.version)
+
+  // Claude Code rewrites the file while the page still holds the version it opened.
+  const file = join(root, 'notes', created.path)
+  writeFileSync(file, readFileSync(file, 'utf8').replace(/First text\.\n$/, 'Edited in Claude Code.\n'))
+  const stale = await call('PUT', `/api/note?path=${path}`, { content: 'Typed on the page.', title: 'First text.', base: opened.version })
+  assert.equal(stale.status, 409)
+  const conflict = await stale.json()
+  assert.match(readFileSync(file, 'utf8'), /Edited in Claude Code\.\n$/, 'the newer file stays')
+  assert.equal(conflict.note.content, 'Edited in Claude Code.')
+  assert.match(conflict.copy.title, /\(other version\)$/)
+  assert.match(readFileSync(join(root, 'notes', conflict.copy.path), 'utf8'), /Typed on the page\.\n$/, "the page's text is kept")
+
+  // From the version it now has, the page's save goes through.
+  const fresh = await call('PUT', `/api/note?path=${path}`, { content: 'Typed again.', title: 'First text.', base: conflict.note.version })
+  assert.equal(fresh.status, 200)
+  const saved = await fresh.json()
+  assert.equal(saved.version, (await (await call('GET', `/api/note?path=${path}`)).json()).version)
+  assert.match(readFileSync(file, 'utf8'), /Typed again\.\n$/)
+})
+
+test('a notebook renamed to the same name in other letter case is renamed', async () => {
+  assert.equal((await call('POST', '/api/notebook', { name: 'ideas' })).status, 201)
+  await call('POST', '/api/note', { folder: 'ideas', content: 'Try canaries.' })
+  const renamed = await call('PUT', '/api/notebook', { name: 'ideas', newName: 'Ideas' })
+  assert.equal(renamed.status, 200)
+  assert.ok(readdirSync(join(root, 'notes')).includes('Ideas'))
+  assert.ok(!readdirSync(join(root, 'notes')).includes('ideas'))
+})
+
+test('a write waits while a Claude Code session holds the notebook lock, and is refused if it keeps it', async () => {
+  const held = lockStep(['take', server.lockDir, 'session', '15000'])
+  assert.equal(held.exitCode, 0)
+  try {
+    const refused = await call('POST', '/api/notebook', { name: 'Locked' })
+    assert.equal(refused.status, 503)
+    assert.match((await refused.json()).error, /saving to the notebook/)
+    assert.equal(existsSync(join(root, 'notes', 'Locked')), false)
+  } finally {
+    lockStep(['give', server.lockDir, held.stdout, 'session'])
+  }
+  assert.equal((await call('POST', '/api/notebook', { name: 'Locked' })).status, 201)
+  assert.equal(lockStep(['take', server.lockDir, 'after', '15000']).exitCode, 0, 'the server gave the lock back')
+})
+
+test('two sessions launching the server at once start one server', async () => {
+  const notes = mkdtempSync(join(tmpdir(), 'live-notebook-launch-'))
+  const lock = join(notes, '.store-lock')
+  const launch = () =>
+    new Promise((resolve, reject) => {
+      execFile(process.execPath, [SERVER, '--launch', '--root', notes, '--web', WEB, '--lock', lock], { timeout: 20_000 }, (error, stdout) =>
+        error ? reject(error) : resolve(JSON.parse(stdout.trim().split('\n').at(-1))),
+      )
+    })
+  const [first, second] = await Promise.all([launch(), launch()])
+  try {
+    assert.equal(first.pid, second.pid)
+    assert.equal(first.port, second.port)
+  } finally {
+    for (const pid of new Set([first.pid, second.pid])) {
+      try {
+        process.kill(pid)
+      } catch {
+        /* gone */
+      }
+    }
+    rmSync(notes, { recursive: true, force: true })
   }
 })

@@ -29,8 +29,24 @@ const keyOf = (id: string) => `${ENTRY_PREFIX}${id}`
  * record. A malformed entry is reported and skipped; it never blocks the
  * rest, and it is never overwritten or deleted by a read.
  */
+export type HostStoreOptions = {
+  /**
+   * Runs right before each write to the store, and throws to stop it: the
+   * mod renews its store lock there, so a writer that lost the lock to
+   * another session writes nothing more.
+   */
+  beforeWrite?: () => Promise<void> | void
+}
+
 export class HostStoreNotebookRepository implements NotebookRepository {
-  constructor(private readonly store: HostStore) {}
+  constructor(
+    private readonly store: HostStore,
+    private readonly options: HostStoreOptions = {},
+  ) {}
+
+  private async beforeWrite(): Promise<void> {
+    await this.options.beforeWrite?.()
+  }
 
   /** Writes the meta record when the store is new. Safe to call every start. */
   async ensureMeta(): Promise<StoreMeta> {
@@ -91,6 +107,7 @@ export class HostStoreNotebookRepository implements NotebookRepository {
   }
 
   async write(entry: NotebookEntry): Promise<void> {
+    await this.beforeWrite()
     try {
       await this.store.set(keyOf(entry.id), entry)
     } catch (error) {
@@ -111,6 +128,7 @@ export class HostStoreNotebookRepository implements NotebookRepository {
   }
 
   async remove(id: string): Promise<void> {
+    await this.beforeWrite()
     try {
       await this.store.delete(keyOf(id))
     } catch (error) {
@@ -127,6 +145,7 @@ export class HostStoreNotebookRepository implements NotebookRepository {
   }
 
   async writeFolders(record: FoldersRecord): Promise<void> {
+    await this.beforeWrite()
     try {
       await this.store.set(FOLDERS_KEY, record)
     } catch (error) {
@@ -171,6 +190,7 @@ export class HostStoreNotebookRepository implements NotebookRepository {
   }
 
   async writeTags(folder: string, tags: NotebookTags): Promise<void> {
+    await this.beforeWrite()
     try {
       await this.store.set(`${TAGS_PREFIX}${folder}`, tags)
     } catch (error) {

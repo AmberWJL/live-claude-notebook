@@ -35,13 +35,16 @@ import {
   SETTINGS_FILE,
   TOUCH_FILE,
   TRASH_DIR,
+  baseOfText,
   blankNoteFile,
   changedFiles,
+  mergeDiskChanges,
   planImport,
   relPathFor,
   serializeNote,
   slugOf,
   sourceFileOf,
+  type FileBase,
   type NoteFile,
 } from '../src/services/note-files'
 import { NotebookService } from '../src/services/notebook-service'
@@ -152,6 +155,8 @@ let editorEndRow = Number.POSITIVE_INFINITY
 let nodePath: string | undefined
 /** Where sessions take turns writing the store (`storeLockDirOf`), once found. */
 let storeLockDir: string | undefined
+/** The current hold's renew-and-check, run before each store write while this session holds the store lock. */
+let heldLockCheck: (() => Promise<void>) | undefined
 /** Whether the terminal theme (the engine's `theme` row, dark by default) is a dark one, read at session start. */
 let isDarkTheme = false
 /** Whether the Mac's appearance, which the desktop app follows, is dark; read at a desktop session's start, null when unknown. */
@@ -231,7 +236,8 @@ function storeOf($: Dollar): HostStore {
 }
 
 function repositoryOf($: Dollar): HostStoreNotebookRepository {
-  return new HostStoreNotebookRepository(storeOf($))
+  // Right before each write, the holder renews its lock and checks nobody took it over: if somebody did, it writes nothing.
+  return new HostStoreNotebookRepository(storeOf($), { beforeWrite: () => heldLockCheck?.() })
 }
 
 function serviceOf($: Dollar): NotebookService {
@@ -264,7 +270,14 @@ async function holdStoreLock<T>($: Dollar, work: () => Promise<T>): Promise<T> {
         every: (ms, beat) => repeatEvery($, ms, beat),
         newToken: () => crypto.randomUUID(),
       },
-      work,
+      async check => {
+        heldLockCheck = check
+        try {
+          return await work()
+        } finally {
+          if (heldLockCheck === check) heldLockCheck = undefined
+        }
+      },
     )
   } catch (error) {
     if (error instanceof StoreLockError) throw new NotebookError('busy', error.message)
@@ -632,20 +645,57 @@ async function notesDirOf($: Dollar): Promise<string> {
   return `${await notesRootOf($)}/${NOTES_DIR}`
 }
 
+/** What this session last wrote to or read from each note file, by path: the base a later write or import merges against. */
+const fileBases = new Map<string, FileBase>()
+
 /**
  * Writes an entry's markdown file (assigning a path the first time) and
  * remembers its time; a note saved from a conversation also gets its
  * sidecar the first time, which never changes after.
+ *
+ * It runs under the store lock, which the web server also takes for its
+ * writes. When the file changed on disk since this session last wrote or
+ * read it, those changes go into the entry first, so a web edit not yet
+ * imported is never written over. Text changed on both sides keeps the
+ * store's, and the disk's becomes a note of its own beside it. A file that
+ * moved or went away on disk is left to the import.
  */
 async function writeNoteFile($: Dollar, entry: NotebookEntry): Promise<NotebookEntry> {
   const dir = await notesDirOf($)
-  const current = entry.file === undefined ? await serviceOf($).setFile(entry.id, relPathFor(entry)) : entry
-  const file = current.file ?? relPathFor(current)
-  const abs = `${dir}/${file}`
-  await hostWrite($, abs, serializeNote(current))
+  return serviceOf($).exclusive(async service => {
+    const stored = await service.getById(entry.id)
+    // Deleted in another session meanwhile: a file now would bring it back on the next import.
+    if (stored === undefined) return entry
+    let current = stored
+    if (current.file === undefined) current = await service.setFile(current.id, relPathFor(current))
+    const file = current.file ?? relPathFor(current)
+    const abs = `${dir}/${file}`
+    const known = (await read($, knownAtom))[file]
+    let mtimeMs: number | undefined
+    try {
+      mtimeMs = (await $.fs.stat(abs)).mtimeMs
+    } catch {
+      mtimeMs = undefined
+    }
+    if (mtimeMs === undefined && known !== undefined) return current
+    if (mtimeMs !== undefined && mtimeMs !== known) {
+      const { patch, conflictContent } = mergeDiskChanges(current, await hostRead($, abs), fileBases.get(file))
+      if (Object.keys(patch).length > 0) current = await service.update(current.id, patch)
+      if (conflictContent !== undefined) await keepOtherVersion($, service, current, conflictContent)
+    }
+    await writeFileOf($, current, `${dir}/${file}`, file)
+    return current
+  })
+}
+
+/** Writes the file itself and what it now holds: its time, its base, and the sidecar the first time. */
+async function writeFileOf($: Dollar, entry: NotebookEntry, abs: string, file: string): Promise<void> {
+  const text = serializeNote(entry)
+  await hostWrite($, abs, text)
   const stat = await $.fs.stat(abs)
   await update($, knownAtom, known => ({ ...(known ?? {}), [file]: stat.mtimeMs }))
-  const sidecar = sourceFileOf(current)
+  fileBases.set(file, baseOfText(text))
+  const sidecar = sourceFileOf(entry)
   if (sidecar !== undefined) {
     const sidecarAbs = `${await notesRootOf($)}/${sidecar.path}`
     try {
@@ -654,7 +704,24 @@ async function writeNoteFile($: Dollar, entry: NotebookEntry): Promise<NotebookE
       /* the snapshot stays in the store; the next write tries again */
     }
   }
-  return current
+}
+
+/**
+ * The text changed on disk and in the store at once: the store's stays in
+ * the note, and the disk's is kept as a note of its own in the same notebook.
+ */
+async function keepOtherVersion($: Dollar, service: NotebookService, entry: NotebookEntry, content: string): Promise<void> {
+  const title = `${entry.title} (other version)`
+  const copy = await service.create({
+    content,
+    title,
+    folder: entry.folder,
+    keepLastFolder: true,
+    source: { captureMode: 'excerpt', role: 'unknown', snapshot: content, capturedAt: await hostNow($), context: { before: [], after: [] } },
+  })
+  const filed = await service.setFile(copy.id, relPathFor(copy))
+  await writeFileOf($, filed, `${await notesDirOf($)}/${filed.file ?? relPathFor(filed)}`, filed.file ?? relPathFor(filed))
+  await setNotice($, { tone: 'error', text: `This note was also changed on the web or in another session. Your text was saved; the other text is kept as “${title}”.` })
 }
 
 /** The snapshot a note's sidecar keeps, when it has one. */
@@ -782,8 +849,10 @@ async function importChanges($: Dollar, options: { force?: boolean } = {}): Prom
       /* unreadable now; next scan */
     }
   }
-  const [entries, folders] = await Promise.all([read($, entriesAtom), read($, foldersAtom)])
-  const actions = planImport({ files, texts, entries, folders: folders.names, dirs })
+  // Planned against the store as it is now, not this session's list: another session may have changed it.
+  const repository = repositoryOf($)
+  const [{ entries }, folders] = await Promise.all([repository.readAll(), repository.readFolders()])
+  const actions = planImport({ files, texts, entries, folders: folders.names, dirs, bases: Object.fromEntries(fileBases) })
   const service = serviceOf($)
   const now = await hostNow($)
   let applied = 0
@@ -835,22 +904,30 @@ async function importChanges($: Dollar, options: { force?: boolean } = {}): Prom
         if (action.createdAt !== undefined) input.createdAt = action.createdAt
         if (action.type !== undefined) input.type = action.type
         if (action.pinned !== undefined) input.pinned = action.pinned
-        const created = await service.create(input)
+        // Another session may have imported the same new file a moment ago: one note, not two.
+        const created = await service.create(input, { unlessFiled: true })
         toClassify.push(created.id)
+        // A file written by hand has no id: give it this note's, so every session matches it by id from now on.
+        if (action.id === undefined) await writeNoteFile($, created)
       }
       applied += 1
     } catch (error) {
       if (isBusy(error)) isRefused = true
-      else await setNotice($, { tone: 'error', text: `A note file could not be imported: ${messageOf(error)}` })
+      else if (action.kind === 'archive' && error instanceof NotebookError && error.code === 'not-found') {
+        /* deleted in another session meanwhile: nothing to archive */
+      } else await setNotice($, { tone: 'error', text: `A note file could not be imported: ${messageOf(error)}` })
     }
   }
   if (isRefused) {
     // Another session held the store: nothing is marked as read, and the next scan plans these files again.
     await update($, touchAtom, () => -1)
   } else {
+    // A file this import wrote (an id given to a hand-written note) keeps the time of that write.
+    const after = await read($, knownAtom)
     const next: Record<string, number> = {}
-    for (const file of files) next[file.path] = file.mtimeMs
+    for (const file of files) next[file.path] = after[file.path] !== known[file.path] ? (after[file.path] ?? file.mtimeMs) : file.mtimeMs
     await update($, knownAtom, () => next)
+    for (const [path, text] of Object.entries(texts)) if (!fileBases.has(path) || after[path] === known[path]) fileBases.set(path, baseOfText(text))
   }
   if (applied > 0) await afterChange($)
   for (const id of toClassify) hostAfter($, 1, () => void classifyEntry($, id))
@@ -976,7 +1053,7 @@ async function startServer($: Dollar): Promise<ServerInfo> {
   if (nodePath === undefined) nodePath = await nodeBinary($)
   const node = nodePath
   const run = await hostRun($,
-    [node, `${pluginRoot}/web/server.mjs`, '--launch', '--root', root, '--web', `${pluginRoot}/web/static`],
+    [node, `${pluginRoot}/web/server.mjs`, '--launch', '--root', root, '--web', `${pluginRoot}/web/static`, '--lock', await storeLockDirOf($)],
     { timeoutMs: 20_000 },
   )
   if (run.exitCode !== 0) {
@@ -1310,11 +1387,14 @@ async function openNote($: Dollar, entryId: string): Promise<void> {
 
 /** Edit: the note in the pane's editor; a kept edit of the same note is resumed. */
 async function startEdit($: Dollar, entryId: string): Promise<void> {
-  const entry = (await read($, entriesAtom)).find(one => one.id === entryId)
-  if (!entry) return
+  const cached = (await read($, entriesAtom)).find(one => one.id === entryId)
+  if (!cached) return
+  // The note as stored now, not as this session last listed it: another session may have changed it since.
+  const entry = (await serviceOf($).getById(entryId).catch(() => undefined)) ?? cached
   const kept = await read($, editAtom)
   if (kept?.entryId !== entryId) {
-    await update($, editAtom, () => ({ id: crypto.randomUUID(), entryId, content: entry.content, title: entry.title, type: entry.type, folder: entry.folder }))
+    const base = { content: entry.content, title: entry.title, type: entry.type, folder: entry.folder }
+    await update($, editAtom, () => ({ id: crypto.randomUUID(), entryId, ...base, base }))
   }
   await setNotice($, null)
   await setView($, { kind: 'edit', entryId })
@@ -1329,30 +1409,62 @@ async function saveEdit($: Dollar): Promise<void> {
     return
   }
   const saved = (await read($, entriesAtom)).find(one => one.id === edit.entryId)
-  // A cleared title goes back to the text's first line; an unchanged one stays derived or the person's own.
-  const title = edit.title.trim() === '' ? deriveTitle(edit.content) : edit.title.trim()
-  const folder = edit.folder !== undefined && edit.folder !== saved?.folder ? edit.folder : undefined
+  // The note as the editor opened it. Only what was edited since is saved, so another session's change to the rest stays.
+  const base = edit.base ?? (saved === undefined ? undefined : { content: saved.content, title: saved.title, type: saved.type, folder: saved.folder })
+  const isTextEdited = base === undefined || edit.content !== base.content
+  const typedTitle = edit.title.trim()
+  const isFolderEdited = edit.folder !== undefined && edit.folder !== base?.folder
   await update($, isSavingAtom, () => true)
   try {
-    const patch = {
-      content: edit.content,
-      ...(title !== '' && title !== saved?.title ? { title } : {}),
-      ...(edit.type !== undefined && edit.type !== saved?.type ? { type: edit.type } : {}),
-      ...(folder !== undefined ? { folder } : {}),
+    let theirs: string | undefined
+    let isUnchanged = false
+    const updated = await serviceOf($).updateWith(
+      edit.entryId,
+      current => {
+        // The text changed elsewhere since the editor opened, and here too: say so rather than write over it.
+        if (isTextEdited && base !== undefined && current.content !== base.content && current.content !== edit.content) {
+          theirs = current.content
+          return undefined
+        }
+        const patch: Parameters<NotebookService['update']>[1] = {}
+        if (isTextEdited && edit.content !== current.content) patch.content = edit.content
+        // A cleared title goes back to the text's first line; an unchanged one stays derived or the person's own.
+        const title = typedTitle === '' ? deriveTitle(patch.content ?? current.content) : typedTitle
+        if (title !== '' && (typedTitle === '' || typedTitle !== base?.title) && title !== current.title) patch.title = title
+        if (edit.type !== undefined && edit.type !== base?.type && edit.type !== current.type) patch.type = edit.type
+        if (isFolderEdited && edit.folder !== current.folder) patch.folder = edit.folder
+        if (Object.keys(patch).length === 0) {
+          isUnchanged = true
+          return undefined
+        }
+        return patch
+      },
+      // A note moved to another notebook gets its file there in the same write.
+      isFolderEdited ? { fileFor: entry => relPathFor(entry) } : {},
+    )
+    if (theirs !== undefined) {
+      const latest = theirs
+      // The next Save replaces that text: the edit now counts from it.
+      await update($, editAtom, current => (current?.id === edit.id ? { ...current, base: { ...(current.base ?? base ?? { title: '', type: 'other', folder: '' }), content: latest } } : current ?? null))
+      await setNotice($, {
+        tone: 'error',
+        text: 'This note was changed somewhere else since you opened it. Press Save again to replace that text with yours, or Discard to keep it.',
+      })
+      return
     }
-    const updated = await serviceOf($).update(edit.entryId, patch)
-    // A note moved to another notebook gets its file there, and the one it had goes.
-    const entry = folder !== undefined ? await serviceOf($).setFile(updated.id, relPathFor(updated)) : updated
+    const entry = updated ?? (isUnchanged ? await serviceOf($).getById(edit.entryId) : undefined)
+    if (entry === undefined) throw new NotebookError('not-found', 'This note was deleted somewhere else.')
+    await setNotice($, null)
     let fileNote: Notice = null
     try {
-      await writeNoteFile($, entry)
-      if (saved?.file !== undefined && saved.file !== entry.file) await forgetNoteFile($, saved.file)
+      const written = await writeNoteFile($, entry)
+      if (saved?.file !== undefined && saved.file !== written.file) await forgetNoteFile($, saved.file)
     } catch (error) {
       fileNote = { tone: 'error', text: `Saved, but the file was not written: ${messageOf(error)}` }
     }
     await afterChange($)
     await update($, editAtom, () => null)
-    await setNotice($, fileNote)
+    if (fileNote !== null) await setNotice($, fileNote)
     await setView($, { kind: 'note', entryId: entry.id })
     await showPane($)
     if (entry.type === 'other') hostAfter($, 1, () => void classifyEntry($, entry.id))

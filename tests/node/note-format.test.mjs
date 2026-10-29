@@ -84,3 +84,17 @@ test('sidecars, settings and search', () => {
   assert.equal(noteMatches(note, 'canary'), false)
   assert.equal(noteMatches(note, '  '), true)
 })
+
+test('empty front matter, or a note that opens with a horizontal rule, keeps all of its text', () => {
+  const empty = parseNoteFile('---\n---\n\nIntro\n\n---\n\nRest\n')
+  assert.deepEqual(empty.meta, {})
+  assert.equal(empty.content, 'Intro\n\n---\n\nRest')
+
+  const rule = parseNoteFile('---\nAn opening section, not front matter.\n\n---\n\nThe rest.\n')
+  assert.deepEqual(rule.meta, {})
+  assert.equal(rule.content, '---\nAn opening section, not front matter.\n\n---\n\nThe rest.')
+
+  const real = parseNoteFile('---\nid: abc\ntitle: "T"\n---\n\nBody\n\n---\n\nMore\n')
+  assert.equal(real.meta.id, 'abc')
+  assert.equal(real.content, 'Body\n\n---\n\nMore')
+})

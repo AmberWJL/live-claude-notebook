@@ -27,6 +27,19 @@ export type NotebookServiceDeps = {
 /** What `updateWith` asks for: a patch for the entry as it is now, or undefined to leave it. */
 export type DecidePatch = (current: NotebookEntry) => UpdateNotebookEntryInput | undefined
 
+export type UpdateOptions = {
+  /** The entry's file path, given the entry as patched: set in the same write (a note moved to another notebook). */
+  fileFor?: (entry: NotebookEntry) => string
+}
+
+export type CreateOptions = {
+  /**
+   * When an entry already has `input.file`, that entry comes back and
+   * nothing is written: two sessions importing one new file make one note.
+   */
+  unlessFiled?: boolean
+}
+
 /** How often a read-modify-write starts over when another writer got there first. */
 const WRITE_ATTEMPTS = 5
 
@@ -43,10 +56,15 @@ const WRITE_ATTEMPTS = 5
 export class NotebookService {
   constructor(private readonly deps: NotebookServiceDeps) {}
 
-  async create(input: CreateNotebookEntryInput): Promise<NotebookEntry> {
+  async create(input: CreateNotebookEntryInput, options: CreateOptions = {}): Promise<NotebookEntry> {
     const normalized = normalizeContent(input.content)
     if (!normalized.ok) throw new NotebookError(normalized.reason, normalized.message)
     return this.locked(async () => {
+      if (options.unlessFiled === true && input.file !== undefined) {
+        const { entries } = await this.deps.repository.readAll()
+        const filed = entries.find(entry => entry.file === input.file)
+        if (filed !== undefined) return filed
+      }
       const folder = await this.resolveFolder(input.folder)
       const at = await this.deps.now()
       const title = (input.title ?? '').trim() || deriveTitle(normalized.content)
@@ -87,8 +105,8 @@ export class NotebookService {
    * leaves out keep what is stored now, even if another session changed
    * them after this one last read the entry.
    */
-  async update(id: string, patch: UpdateNotebookEntryInput): Promise<NotebookEntry> {
-    const updated = await this.locked(() => this.edit(id, () => patch))
+  async update(id: string, patch: UpdateNotebookEntryInput, options: UpdateOptions = {}): Promise<NotebookEntry> {
+    const updated = await this.locked(() => this.edit(id, () => patch, options))
     if (updated === undefined) throw notFound(id)
     return updated
   }
@@ -98,8 +116,17 @@ export class NotebookService {
    * writing, for a change that depends on it (fill the tags only while they
    * are empty, say). Undefined when the entry is gone or `decide` leaves it.
    */
-  async updateWith(id: string, decide: DecidePatch): Promise<NotebookEntry | undefined> {
-    return this.locked(() => this.edit(id, decide))
+  async updateWith(id: string, decide: DecidePatch, options: UpdateOptions = {}): Promise<NotebookEntry | undefined> {
+    return this.locked(() => this.edit(id, decide, options))
+  }
+
+  /**
+   * Runs `work` under one hold of the lock, with a service that does not take
+   * it again: for a change made of several steps that must not interleave
+   * with another session's (read a file, merge it, write the store and the file).
+   */
+  async exclusive<T>(work: (service: NotebookService) => Promise<T>): Promise<T> {
+    return this.locked(() => work(new NotebookService({ ...this.deps, lock: undefined })))
   }
 
   async archive(id: string): Promise<void> {
@@ -182,7 +209,7 @@ export class NotebookService {
   }
 
   /** The body of `update` and `updateWith`: undefined when the entry is gone or `decide` leaves it. */
-  private async edit(id: string, decide: DecidePatch): Promise<NotebookEntry | undefined> {
+  private async edit(id: string, decide: DecidePatch, options: UpdateOptions = {}): Promise<NotebookEntry | undefined> {
     let moved: string | undefined
     let isLeft = false
     const next = await this.modifyEntry(id, async current => {
@@ -190,6 +217,7 @@ export class NotebookService {
       isLeft = patch === undefined
       if (patch === undefined) return current
       const entry = await this.patched(current, patch)
+      if (options.fileFor !== undefined) entry.file = options.fileFor(entry)
       moved = patch.folder !== undefined ? entry.folder : undefined
       return entry
     })

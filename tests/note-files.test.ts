@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { NotebookEntry } from '../src/types'
-import { changedFiles, parseNote, planImport, relPathFor, serializeNote, slugOf } from '../src/services/note-files'
+import { baseOfText, changedFiles, mergeDiskChanges, parseNote, planImport, relPathFor, serializeNote, slugOf } from '../src/services/note-files'
 
 function entry(partial: Partial<NotebookEntry> & { id: string }): NotebookEntry {
   return {
@@ -183,3 +183,47 @@ describe('note files', () => {
     expect(actions).toEqual([])
   })
 })
+
+describe('merging a file changed on disk', () => {
+  test('a write takes the fields the web changed and keeps the store\'s own change', () => {
+    const written = entry({ id: 'n-1', title: 'Deploys', content: 'Old text.', tags: [] })
+    const base = baseOfText(serializeNote(written))
+    // The web changed the text; the store meanwhile got tags from the model.
+    const disk = serializeNote({ ...written, content: 'New text from the web.' })
+    const store = { ...written, tags: ['ops'] }
+    const { patch, conflictContent } = mergeDiskChanges(store, disk, base)
+    expect(patch).toEqual({ content: 'New text from the web.' })
+    expect(conflictContent).toBeUndefined()
+  })
+
+  test('text changed on both sides keeps the store\'s and hands back the disk\'s', () => {
+    const written = entry({ id: 'n-1', content: 'Old text.' })
+    const base = baseOfText(serializeNote(written))
+    const disk = serializeNote({ ...written, content: 'Typed on the web.' })
+    const { patch, conflictContent } = mergeDiskChanges({ ...written, content: 'Typed in the pane.' }, disk, base)
+    expect(patch.content).toBeUndefined()
+    expect(conflictContent).toBe('Typed on the web.')
+  })
+
+  test('without a base nothing is taken from disk', () => {
+    const written = entry({ id: 'n-1', content: 'Old text.' })
+    expect(mergeDiskChanges({ ...written, content: 'Edited here.' }, serializeNote(written), undefined)).toEqual({ patch: {} })
+  })
+
+  test('an import leaves a field the file did not change since this session wrote it', () => {
+    const written = entry({ id: 'n-1', file: 'General/n-1.md', content: 'Old text.', tags: ['a'] })
+    const text = serializeNote({ ...written, content: 'New text from the web.' })
+    // The store already has the model's tags, not yet written to the file.
+    const store = { ...written, tags: ['a', 'b'] }
+    const actions = planImport({
+      files: [{ path: 'General/n-1.md', folder: 'General', mtimeMs: 2 }],
+      texts: { 'General/n-1.md': text },
+      entries: [store],
+      folders: ['General'],
+      dirs: ['General'],
+      bases: { 'General/n-1.md': baseOfText(serializeNote(written)) },
+    })
+    expect(actions).toEqual([{ kind: 'update', entryId: 'n-1', content: 'New text from the web.' }])
+  })
+})
+
