@@ -72,33 +72,49 @@ nothing reads those, and they are never written to a file.
 
 ### Several sessions at once
 
-Every Claude Code session on the machine writes the same store. Each
-`$.store.set` is atomic on its own, but changing a record is a read and then
-a write, so two sessions could otherwise write over each other's change. Two
-things prevent that:
+Every Claude Code session on the machine writes the same store, and every
+session and the web server write the same note files. Each single write is
+atomic, but changing a record is a read and then a write, so two writers
+could otherwise undo each other. These rules prevent that:
 
 - **The re-check.** The service writes a changed entry or `folders` record
-  only if the stored one is still the one it read. If another session got
+  only if the stored one is still the one it read. If another writer got
   there first, it makes the change again on the newer record. Changes that
   depend on the record, such as the model's tags filling only empty tags,
   are decided at that moment too (`updateWith`).
-- **The store lock.** Each write the service makes holds a lock directory,
-  `~/.claude/live-notebook/.store.lock`, so the re-check and the write of
-  one session never interleave with another's. `$.fs` cannot create a file
-  exclusively, so a short node script takes, refreshes and gives it
-  (`src/core/store-lock.mjs`). A holder refreshes its lock every 5 seconds
-  while its write runs; a lock not refreshed for 15 seconds was left by a
-  session that is gone and is taken over.
+- **The lock.** Each write holds the notebook's lock,
+  `~/.claude/live-notebook/.store-lock`, which sessions and the web server
+  share (`src/core/store-lock.mjs`, run as a short node script since `$.fs`
+  cannot create a file exclusively). The lock is a folder of numbered
+  generations: taking it creates the next number, which only one process
+  can do. A holder renews it every 5 seconds and right before every write,
+  and stops writing if a newer generation exists. A lock not renewed for 15
+  seconds is taken over by creating the next generation, and the takeover
+  withdraws if the old holder renewed meanwhile. Each side acts first and
+  checks second, so a live holder and a contender never both go on.
 - **No write without the lock.** A write that cannot get the lock within
-  about 3 seconds, or cannot run the lock's script, is refused with a
-  NotebookError `busy`, and nothing is saved: a write made without the lock
-  could land between another session's last read and its write. The pane
-  keeps the draft and says to save again; a refused web import is planned
-  again on the next scan, and a refused classification is dropped.
+  about 3 seconds is refused with a NotebookError `busy`, and nothing is
+  saved. The pane keeps the draft and says to save again; a refused web
+  import is planned again on the next scan; a refused classification is
+  dropped.
+- **Only what changed.** A pane edit remembers the note as it opened and
+  saves only the fields edited since. If the text also changed elsewhere,
+  the save is refused once with a notice, and a second Save replaces it.
+- **Files merge, not overwrite.** Each session remembers every note file as
+  it last wrote or read it. Before writing a file that changed on disk
+  since, the mod takes in the fields changed there; text changed on both
+  sides keeps the store's, and the disk's becomes a note of its own
+  ("… (other version)"). An import likewise leaves a field the file did not
+  change, so a change not yet written to the file stays.
+- **Versions on the page.** A save from the web page names the version of
+  the title and text it started from. If the file changed since, the server
+  keeps the newer file and saves the page's text as a note of its own; the
+  page then shows the newer note and says where its text went. An open note
+  the page is not editing reloads when it changes.
 
-A process frozen outright (in a debugger, say) stops refreshing and can be
-taken over after 15 seconds. Closing that would take a conditional write in
-`$.store`, which the host does not offer.
+A process frozen outright (in a debugger, say) between its last check and
+its write can be taken over after 15 seconds. Closing that would take a
+conditional write in `$.store`, which the host does not offer.
 
 ### The notes folder
 

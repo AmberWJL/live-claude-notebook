@@ -113,14 +113,19 @@ export function parseNoteFile(text) {
   const meta = {}
   const body = rest => rest.replace(/\n$/, '')
   if (!normalized.startsWith('---\n')) return { meta, content: body(normalized) }
-  const end = normalized.indexOf('\n---', 4)
-  if (end < 0) return { meta, content: body(normalized) }
-  const head = normalized.slice(4, end)
+  // The block closes at the first line that is exactly `---`, which may be the very next one (empty front
+  // matter). It is front matter only when every line in it is a `key: value` pair or blank: a note that
+  // opens with a horizontal rule is all body.
+  const lines = normalized.split('\n')
+  const close = lines.indexOf('---', 1)
+  if (close < 0) return { meta, content: body(normalized) }
+  const headLines = lines.slice(1, close)
+  if (!headLines.every(line => line.trim() === '' || /^[a-zA-Z_]+:/.test(line))) return { meta, content: body(normalized) }
   // Past the closing `---` line, then past the one blank line that separates it from the body.
-  let content = normalized.slice(end + 4)
-  if (content.startsWith('\n')) content = content.slice(1)
-  if (content.startsWith('\n')) content = content.slice(1)
-  for (const line of head.split('\n')) {
+  const rest = lines.slice(close + 1)
+  if (rest[0] === '') rest.shift()
+  const content = rest.join('\n')
+  for (const line of headLines) {
     const match = /^([a-zA-Z_]+):\s*(.*)$/.exec(line)
     if (!match) continue
     const key = match[1]

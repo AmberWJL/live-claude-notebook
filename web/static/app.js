@@ -71,13 +71,16 @@
       body: body === undefined ? undefined : JSON.stringify(body),
     })
     if (!response.ok) {
-      let detail = ''
+      let answer = null
       try {
-        detail = (await response.json()).error ?? ''
+        answer = await response.json()
       } catch {
         /* none */
       }
-      throw new Error(`${method} ${path} failed (${response.status}) ${detail}`.trim())
+      const error = new Error(`${method} ${path} failed (${response.status}) ${answer?.error ?? ''}`.trim())
+      error.status = response.status
+      error.answer = answer
+      throw error
     }
     return response.status === 204 ? null : response.json()
   }
@@ -576,16 +579,55 @@
       }
     }
     try {
-      const result = await api('PUT', `/api/note?path=${encodeURIComponent(target.path)}`, { content, title })
+      // The version this text started from: if the note changed since (in Claude Code, say), the server keeps
+      // the newer note and keeps this text as a note of its own.
+      const result = await api('PUT', `/api/note?path=${encodeURIComponent(target.path)}`, { content, title, base: target.version })
       state.dirty = false
       target.content = content
+      target.version = result.version
       target.meta = { ...target.meta, ...result.meta }
       showDates(target.meta)
       setStatus('')
       await refreshTree()
     } catch (error) {
+      if (error.status === 409 && error.answer?.note) {
+        await showNewerVersion(target, error.answer)
+        return
+      }
       setStatus(`Save failed: ${error.message}`, 'error')
     }
+  }
+
+  /** The note changed elsewhere while this page edited it: show the newer note, and say where this page's text went. */
+  async function showNewerVersion(target, answer) {
+    if (state.open !== target) return
+    state.dirty = false
+    clearTimeout(state.saveTimer)
+    Object.assign(target, answer.note)
+    els.title.value = target.meta.title ?? ''
+    showDates(target.meta)
+    await ensureEditor(target.content)
+    await refreshTree()
+    const copy = answer.copy?.title ? ` Your text was kept as “${answer.copy.title}”.` : ''
+    setStatus(`This note was changed in Claude Code while you were editing it.${copy}`, 'error')
+  }
+
+  /** The open note, reloaded when it changed elsewhere and this page has nothing unsaved. */
+  async function reloadOpenNote() {
+    const target = state.open
+    if (!target || state.dirty) return
+    let note
+    try {
+      note = await api('GET', `/api/note?path=${encodeURIComponent(target.path)}`)
+    } catch {
+      return
+    }
+    if (state.open !== target || state.dirty || note.version === target.version) return
+    Object.assign(target, note)
+    els.title.value = target.meta.title ?? ''
+    els.type.value = TYPES[target.meta.type] ? target.meta.type : 'other'
+    showDates(target.meta)
+    await ensureEditor(target.content)
   }
 
   async function openNote(path) {
@@ -846,7 +888,7 @@
     if (state.dirty && state.open && state.editor) {
       navigator.sendBeacon?.(
         `/api/note?path=${encodeURIComponent(state.open.path)}`,
-        new Blob([JSON.stringify({ content: state.editor.getValue(), title: els.title.value.trim() })], {
+        new Blob([JSON.stringify({ content: state.editor.getValue(), title: els.title.value.trim(), base: state.open.version })], {
           type: 'application/json',
         }),
       )
@@ -855,7 +897,11 @@
 
   // Poll the tree so notes saved from Claude Code show up while the page is open.
   setInterval(() => {
-    if (!state.dirty && !state.dragging) void refreshTree().catch(() => setStatus('Server unreachable', 'error'))
+    if (!state.dirty && !state.dragging) {
+      void refreshTree()
+        .then(() => reloadOpenNote())
+        .catch(() => setStatus('Server unreachable', 'error'))
+    }
   }, 4000)
 
   async function boot() {

@@ -174,10 +174,14 @@ function sharedStore() {
                 withStoreLock(
                   {
                     dir: '/home/t/.claude/live-notebook/.store.lock',
-                    run: async ([verb, , token]) => {
+                    run: async ([verb, , ...rest]) => {
                       if (verb === 'take' && lockOwner !== undefined) return { exitCode: STORE_LOCK_HELD }
-                      if (verb === 'take') lockOwner = token
-                      if (verb === 'give' && lockOwner === token) lockOwner = undefined
+                      if (verb === 'take') {
+                        lockOwner = rest[0]
+                        return { exitCode: 0, stdout: String((tokens += 1)) }
+                      }
+                      if (verb === 'renew') return { exitCode: lockOwner === rest[1] ? 0 : STORE_LOCK_HELD }
+                      if (verb === 'give' && lockOwner === rest[1]) lockOwner = undefined
                       return { exitCode: 0 }
                     },
                     sleep: async () => {},
@@ -353,5 +357,47 @@ describe('NotebookService across sessions', () => {
     expect(deepest).toBe(1)
     expect(await service.getById('missing')).toBeUndefined()
     expect(holds).toBe(6)
+  })
+
+  test('a move gets its new file path in the same write, so it saves whole or not at all', async () => {
+    const { service, repository } = serviceWith()
+    const entry = await service.create({ content: 'Roll out to 5% first.', folder: 'Ops', file: 'Ops/roll-out--1.md', source })
+    let writes = 0
+    const write = repository.writeIf.bind(repository)
+    repository.writeIf = async (next, expected) => {
+      writes += 1
+      return write(next, expected)
+    }
+    const moved = await service.update(entry.id, { folder: 'Ideas' }, { fileFor: one => `${one.folder}/roll-out--1.md` })
+    expect(moved.folder).toBe('Ideas')
+    expect(moved.file).toBe('Ideas/roll-out--1.md')
+    expect(writes).toBe(1)
+  })
+
+  test('importing a file another entry already has returns that entry and writes nothing', async () => {
+    const { service, repository } = serviceWith()
+    const first = await service.create({ content: 'Hand-written.', file: 'Ops/hand.md', source }, { unlessFiled: true })
+    const again = await service.create({ content: 'Hand-written.', file: 'Ops/hand.md', source }, { unlessFiled: true })
+    expect(again.id).toBe(first.id)
+    expect((await repository.readAll()).entries).toHaveLength(1)
+  })
+
+  test('exclusive runs several steps under one hold of the lock', async () => {
+    let holds = 0
+    const service = new NotebookService({
+      repository: new InMemoryNotebookRepository(),
+      newId: () => crypto.randomUUID(),
+      now: () => 1,
+      lock: async work => {
+        holds += 1
+        return work()
+      },
+    })
+    await service.exclusive(async unlocked => {
+      const entry = await unlocked.create({ content: 'A note.', source })
+      await unlocked.update(entry.id, { tags: ['x'] })
+      await unlocked.setFile(entry.id, 'General/a-note.md')
+    })
+    expect(holds).toBe(1)
   })
 })

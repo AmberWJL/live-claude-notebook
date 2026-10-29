@@ -272,8 +272,10 @@ describe('live-notebook hooks', () => {
     // Every write to the shared store held the lock other sessions take, and gave back the token it took.
     const takes = engine.locks.filter(args => args[0] === 'take')
     expect(takes.length).toBeGreaterThan(0)
-    expect(takes.every(args => args[1] === `${HOME}/.claude/live-notebook/.store.lock`)).toBe(true)
-    expect(engine.locks.filter(args => args[0] === 'give').map(args => args[2])).toEqual(takes.map(args => args[2]))
+    expect(takes.every(args => args[1] === `${HOME}/.claude/live-notebook/.store-lock`)).toBe(true)
+    expect(engine.locks.filter(args => args[0] === 'give').map(args => args[3])).toEqual(takes.map(args => args[2]))
+    // Each write was preceded by a renewal of the lock it was made under.
+    expect(engine.locks.filter(args => args[0] === 'renew').length).toBeGreaterThan(0)
   })
 
   test('edits made on the web come back: a changed file, a new note, a new notebook, a deleted note', async ($, on) => {
@@ -421,6 +423,94 @@ describe('live-notebook hooks', () => {
     expect(entryKeys(data)).toHaveLength(1)
     expect(firstEntry(data)).toMatchObject({ content: 'x' })
     await ui.unmount()
+  })
+
+  test('a pane edit saves only what it changed, and never writes over text changed elsewhere meanwhile', async ($, on) => {
+    const data = fakeStore(on, { meta: { schemaVersion: 1 }, folders: { names: ['General', 'Ops'], last: 'Ops' }, 'entry:e-1': seeded })
+    fakeFs(on)
+    fakeEngine(on)
+    mock.clock(on, { now: 500 })
+    await $.session.start(START)
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: PANE_PROPS })
+    await ui.press({ key: 'entry:e-1' })
+    await ui.press({ key: 'edit' })
+    // Another session saves new text while this editor is open; here only the type changes.
+    data.set('entry:e-1', { ...(data.get('entry:e-1') as object), content: 'Text saved in another session.' })
+    await ui.select({ key: 'edit-type', value: 'reference' })
+    await ui.press({ key: 'save-edit' })
+    expect(data.get('entry:e-1')).toMatchObject({ content: 'Text saved in another session.', type: 'reference' })
+
+    // Both sides change the text: the save is refused and says so; a second Save replaces the other text.
+    await ui.press({ key: 'edit' })
+    expect(editorText(await ui.drawn({ in: 'editor' }))).toBe('Text saved in another session.')
+    await ui.key({ key: 'end', in: 'editor' })
+    await typeInto(ui, 'editor', ' Mine.')
+    data.set('entry:e-1', { ...(data.get('entry:e-1') as object), content: 'Theirs, newer.' })
+    await ui.press({ key: 'save-edit' })
+    expect(data.get('entry:e-1')).toMatchObject({ content: 'Theirs, newer.' })
+    expect(await ui.find({ type: 'Text', text: /changed somewhere else since you opened it/ })).toBeDefined()
+    expect(editorText(await ui.drawn({ in: 'editor' }))).toBe('Text saved in another session. Mine.')
+    await ui.press({ key: 'save-edit' })
+    expect(data.get('entry:e-1')).toMatchObject({ content: 'Text saved in another session. Mine.' })
+    await ui.unmount()
+  })
+
+  test('a write from Claude Code takes in a web edit not yet imported instead of writing over it', async ($, on) => {
+    const data = fakeStore(on, { meta: { schemaVersion: 1 }, folders: { names: ['General', 'Ops'], last: 'Ops' }, 'entry:e-1': seeded })
+    const fs = fakeFs(on)
+    fakeEngine(on)
+    mock.clock(on, { now: 500 })
+    await $.session.start(START)
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: PANE_PROPS })
+    const file = `${NOTES}/Ops/blue-green-deploy--e-1.md`
+    // One save from the pane writes the file, so this session knows it.
+    await ui.press({ key: 'entry:e-1' })
+    await ui.press({ key: 'edit' })
+    await ui.select({ key: 'edit-type', value: 'reference' })
+    await ui.press({ key: 'save-edit' })
+    expect(fs.read(file)).toContain('type: reference')
+    // The web page saves new text; before the next import, a pane save changes the type again.
+    fs.writeFromWeb(file, (fs.read(file) ?? '').replace('Switch traffic only after health checks pass.', 'Typed on the web page.'))
+    await ui.press({ key: 'edit' })
+    await ui.select({ key: 'edit-type', value: 'insight' })
+    await ui.press({ key: 'save-edit' })
+    expect(fs.read(file)).toContain('Typed on the web page.')
+    expect(fs.read(file)).toContain('type: insight')
+    expect(data.get('entry:e-1')).toMatchObject({ content: 'Typed on the web page.', type: 'insight' })
+    await ui.unmount()
+  })
+
+  test('a note deleted in another session is no import error here', async ($, on) => {
+    const data = fakeStore(on, { meta: { schemaVersion: 1 }, folders: { names: ['General', 'Ops'], last: 'Ops' }, 'entry:e-1': seeded })
+    const fs = fakeFs(on)
+    fakeEngine(on)
+    const clock = mock.clock(on, { now: 500 })
+    await $.session.start(START)
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: PANE, props: PANE_PROPS })
+    await ui.press({ key: 'entry:e-1' })
+    await ui.press({ key: 'edit' })
+    await ui.select({ key: 'edit-type', value: 'reference' })
+    await ui.press({ key: 'save-edit' })
+    // Another session deletes the note: its entry and its file go. Then the web touches the folder.
+    data.delete('entry:e-1')
+    fs.files.delete(`${NOTES}/Ops/blue-green-deploy--e-1.md`)
+    fs.writeFromWeb(`${NOTES}/Ops/_notebook.json`, JSON.stringify({ name: 'Ops' }))
+    await clock.advance(3_000)
+    expect(await ui.find({ type: 'Text', text: /could not be imported/ })).toBeUndefined()
+    expect(data.has('entry:e-1')).toBe(false)
+    await ui.unmount()
+  })
+
+  test('a note file written by hand gets an id when it is imported, so every session matches it', async ($, on) => {
+    const data = fakeStore(on, { meta: { schemaVersion: 1 }, folders: { names: ['General', 'Ops'], last: 'Ops' } })
+    const fs = fakeFs(on, { [`${NOTES}/Ops/hand.md`]: 'Written by hand.\n' })
+    fakeEngine(on)
+    mock.clock(on, { now: 500 })
+    await $.session.start(START)
+    expect(entryKeys(data)).toHaveLength(1)
+    const id = (firstEntry(data) as { id: string }).id
+    expect(fs.read(`${NOTES}/Ops/hand.md`)).toContain(`id: ${id}`)
+    expect(fs.read(`${NOTES}/Ops/hand.md`)).toContain('Written by hand.')
   })
 
   test('a storage failure keeps the draft and reports no success', async ($, on) => {

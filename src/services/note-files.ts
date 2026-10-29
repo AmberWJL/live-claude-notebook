@@ -106,6 +106,64 @@ export function parseNote(text: string): { meta: NoteMeta; content: string } {
   return parseNoteFile(text)
 }
 
+/**
+ * A note file's editable fields as this session last wrote or read them:
+ * what a later write or import merges against. A field that differs from
+ * its base changed on disk (on the web, by hand, or by another session).
+ */
+export type FileBase = {
+  content: string
+  title?: string
+  type?: string
+  tags?: readonly string[]
+  pinned: boolean
+}
+
+/** A file's text as a base. */
+export function baseOfText(text: string): FileBase {
+  const { meta, content } = parseNote(text)
+  const normalized = normalizeContent(content)
+  const base: FileBase = { content: normalized.ok ? normalized.content : content, pinned: meta.pinned === true }
+  if (meta.title !== undefined) base.title = meta.title
+  if (meta.type !== undefined) base.type = meta.type
+  if (meta.tags !== undefined) base.tags = [...meta.tags]
+  return base
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+/**
+ * What a write of `entry` must take from the file on disk first: the fields
+ * that changed there since `base` and still differ from the store. Both
+ * sides changing the text is a conflict: the store's text stays and the
+ * disk's comes back as `conflictContent`, to be kept as a note of its own.
+ * Without a base nothing is known about the disk's history, and nothing is
+ * taken (the write goes as before).
+ */
+export function mergeDiskChanges(
+  entry: NotebookEntry,
+  diskText: string,
+  base: FileBase | undefined,
+): { patch: { content?: string; title?: string; type?: EntryType; tags?: string[]; pinned?: boolean }; conflictContent?: string } {
+  const patch: { content?: string; title?: string; type?: EntryType; tags?: string[]; pinned?: boolean } = {}
+  if (base === undefined) return { patch }
+  const disk = baseOfText(diskText)
+  let conflictContent: string | undefined
+  if (disk.content !== base.content && disk.content !== entry.content && disk.content.trim() !== '') {
+    if (entry.content !== base.content) conflictContent = disk.content
+    else patch.content = disk.content
+  }
+  if (disk.title !== undefined && disk.title.trim() !== '' && disk.title !== 'Untitled' && !sameValue(disk.title, base.title) && disk.title !== entry.title) {
+    patch.title = disk.title
+  }
+  if (isEntryType(disk.type) && !sameValue(disk.type, base.type) && disk.type !== entry.type) patch.type = disk.type
+  if (disk.tags !== undefined && !sameValue(disk.tags, base.tags) && !sameValue(disk.tags, entry.tags)) patch.tags = [...disk.tags]
+  if (disk.pinned !== base.pinned && disk.pinned !== (entry.pinned === true)) patch.pinned = disk.pinned
+  return conflictContent === undefined ? { patch } : { patch, conflictContent }
+}
+
 /** One markdown file found under the notes root. */
 export type NoteFile = {
   /** `<Notebook>/<name>.md` */
@@ -143,6 +201,12 @@ export type ImportPlanInput = {
   folders: readonly string[]
   /** Notebook directories now present. */
   dirs: readonly string[]
+  /**
+   * What this session last wrote to or read from each file, by path. A
+   * field equal to its base did not change on disk, so the store's value
+   * (a change not yet written to the file) stays.
+   */
+  bases?: Readonly<Record<string, FileBase>>
 }
 
 /** A file's record of the conversation it was saved from; undefined for a note written by hand. */
@@ -217,11 +281,14 @@ export function planImport(input: ImportPlanInput): ImportAction[] {
     }
     const update: ImportAction = { kind: 'update', entryId: entry.id }
     let isChanged = false
-    if (normalized.ok && normalized.content !== entry.content) {
+    const base = input.bases?.[file.path]
+    const disk = baseOfText(text)
+    const isDiskChange = (field: keyof FileBase) => base === undefined || !sameValue(disk[field], base[field])
+    if (normalized.ok && normalized.content !== entry.content && isDiskChange('content')) {
       update.content = normalized.content
       isChanged = true
     }
-    if (meta.title !== undefined && meta.title.trim() !== '' && meta.title !== 'Untitled' && meta.title !== entry.title) {
+    if (meta.title !== undefined && meta.title.trim() !== '' && meta.title !== 'Untitled' && meta.title !== entry.title && isDiskChange('title')) {
       update.title = meta.title
       isChanged = true
     }
@@ -233,17 +300,17 @@ export function planImport(input: ImportPlanInput): ImportAction[] {
       update.folder = file.folder
       isChanged = true
     }
-    if (isEntryType(meta.type) && meta.type !== entry.type) {
+    if (isEntryType(meta.type) && meta.type !== entry.type && isDiskChange('type')) {
       update.type = meta.type
       isChanged = true
     }
     // Tags edited in the file. A file with no tags line says nothing about them (one written before files carried tags).
-    if (meta.tags !== undefined && meta.tags.join('\n') !== entry.tags.join('\n')) {
+    if (meta.tags !== undefined && meta.tags.join('\n') !== entry.tags.join('\n') && isDiskChange('tags')) {
       update.tags = meta.tags
       isChanged = true
     }
     // A pin set or cleared on the web.
-    if ((meta.pinned === true) !== (entry.pinned === true)) {
+    if ((meta.pinned === true) !== (entry.pinned === true) && isDiskChange('pinned')) {
       update.pinned = meta.pinned === true
       isChanged = true
     }

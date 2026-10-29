@@ -19,11 +19,18 @@
  * request must come from the notebook's own page (so another site cannot
  * write notes through it).
  *
+ * Every write takes the notebook's write lock (`--lock`, else
+ * `~/.claude/live-notebook/.store-lock`), the one Claude Code sessions take
+ * for theirs, so a session and the page never write a note at once. A save
+ * from the page names the version of the note it started from; when the
+ * file changed since (in Claude Code, say), the page's text is kept as a
+ * note of its own instead of replacing the newer one.
+ *
  * The root is `--root`, else `LIVE_NOTEBOOK_HOME`, else `~/.claude/live-notebook`.
  */
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { homedir } from 'node:os'
 import { basename, extname, join, resolve, sep } from 'node:path'
@@ -45,6 +52,7 @@ import {
   titleOf,
 } from '../src/core/note-format.mjs'
 import { EXPORT_FORMATS } from '../src/services/export-markdown.mjs'
+import { STORE_LOCK_DIR, STORE_LOCK_SCRIPT, StoreLockError, withStoreLock } from '../src/core/store-lock.mjs'
 
 const args = parseArgs(process.argv.slice(2))
 const root = resolve(args.root ?? (process.env.LIVE_NOTEBOOK_HOME?.trim() || join(homedir(), '.claude', 'live-notebook')))
@@ -53,6 +61,8 @@ const webDir = resolve(args.web ?? join(fileURLToPath(new URL('.', import.meta.u
 const serverFile = join(root, 'server.json')
 const portFile = join(root, 'port')
 const touchFile = join(notesDir, '.touch')
+const lockDir = resolve(args.lock ?? process.env.LIVE_NOTEBOOK_LOCK_DIR ?? join(homedir(), '.claude', 'live-notebook', STORE_LOCK_DIR))
+const launchLock = join(root, '.launch.lock')
 const DEFAULT_PORT = 47231
 const version = readVersion()
 
@@ -117,6 +127,16 @@ function isAlive(pid) {
   try {
     process.kill(pid, 0)
     return true
+  } catch {
+    return false
+  }
+}
+
+/** Whether a notebook server for this root answers on `port`. */
+async function servesThisRoot(port) {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(1500) })
+    return response.ok && (await response.json()).root === root
   } catch {
     return false
   }
@@ -218,9 +238,10 @@ function updateNote(abs, body) {
   // A pin alone is not an edit: the note keeps its place among the others.
   const isEdit = typeof body.content === 'string' || typeof body.title === 'string' || NOTE_TYPES.includes(body.type) || body.archived === true
   if (isEdit) meta.updated = new Date().toISOString()
-  writeFileSync(abs, serializeNote(meta, nextContent))
+  const text = serializeNote(meta, nextContent)
+  writeFileSync(abs, text)
   touch()
-  return meta
+  return { meta, version: versionOf(text) }
 }
 
 /**
@@ -231,7 +252,7 @@ function moveNote(abs, rel, folderName) {
   const folder = safeFolder(folderName)
   if (folder === undefined) return { status: 400, error: 'bad folder' }
   const { meta, content } = parseNote(readFileSync(abs, 'utf8'))
-  if (folder === rel.split('/')[0]) return { status: 200, path: rel, meta }
+  if (folder === rel.split('/')[0]) return { status: 200, path: rel, meta, version: versionOf(readFileSync(abs, 'utf8')) }
   if (!existsSync(join(notesDir, folder))) return { status: 404, error: 'notebook not found' }
   const next = `${folder}/${basename(abs)}`
   const nextAbs = safeNotePath(next)
@@ -239,10 +260,82 @@ function moveNote(abs, rel, folderName) {
   if (existsSync(nextAbs)) return { status: 409, error: 'a note with that file name is already there' }
   meta.folder = folder
   meta.updated = new Date().toISOString()
-  writeFileSync(nextAbs, serializeNote(meta, content))
+  const text = serializeNote(meta, content)
+  writeFileSync(nextAbs, text)
   unlinkSync(abs)
   touch()
-  return { status: 200, path: next, meta }
+  return { status: 200, path: next, meta, version: versionOf(text) }
+}
+
+// ---------------------------------------------------------------------------
+// The write lock and note versions
+// ---------------------------------------------------------------------------
+
+const sleep = ms => new Promise(resolveSleep => setTimeout(resolveSleep, ms))
+
+function runLock(lockArgs) {
+  const run = spawnSync(process.execPath, ['-e', STORE_LOCK_SCRIPT, ...lockArgs], { encoding: 'utf8', timeout: 5000 })
+  if (run.error) throw run.error
+  return { exitCode: run.status ?? 1, stdout: run.stdout ?? '' }
+}
+
+/**
+ * Runs `work` holding the notebook's write lock. The lock is renewed right
+ * before `work`, which reads and writes files synchronously, well inside the
+ * lock's stale time. Throws a StoreLockError when a session keeps the lock.
+ */
+function withNotebookLock(work) {
+  return withStoreLock(
+    {
+      dir: lockDir,
+      run: async lockArgs => runLock(lockArgs),
+      sleep,
+      every: (ms, beat) => {
+        const timer = setInterval(() => void beat(), ms)
+        return () => clearInterval(timer)
+      },
+      newToken: () => randomUUID(),
+    },
+    async check => {
+      await check()
+      return work()
+    },
+  )
+}
+
+/**
+ * A note file's version: what a save from the page names to say which text
+ * it started from. Only the title and the text count, the two things a save
+ * from the page writes; a new type, pin or notebook is not a conflict.
+ */
+function versionOf(text) {
+  const { meta, content } = parseNote(text)
+  return createHash('sha256').update(`${meta.title ?? ''}\u0000${content}`).digest('hex').slice(0, 16)
+}
+
+/** A new note file in a notebook, with a fresh id; the folder must be a safe name. */
+function createNoteFile(folder, title, content, extra = {}) {
+  const id = randomUUID()
+  const now = new Date().toISOString()
+  const rel = `${folder}/${slugOf(title)}--${id.slice(0, 8)}.md`
+  const abs = safeNotePath(rel)
+  if (abs === undefined) return undefined
+  mkdirSync(join(notesDir, folder), { recursive: true })
+  const meta = { id, title, folder, created: now, updated: now, captured: 'excerpt', ...extra }
+  const text = serializeNote(meta, content)
+  writeFileSync(abs, text)
+  return { path: rel, meta, content, version: versionOf(text) }
+}
+
+/**
+ * The page's text, saved from a version older than the file's: it becomes a
+ * note of its own in the same notebook, so neither text is lost.
+ */
+function keepOtherVersion(rel, body) {
+  const folder = rel.split('/')[0]
+  const { meta } = parseNote(readFileSync(safeNotePath(rel), 'utf8'))
+  const title = `${(typeof body.title === 'string' && body.title.trim()) || meta.title || 'Untitled'} (other version)`
+  return createNoteFile(folder, title, String(body.content ?? '').replace(/\r\n?/g, '\n'))
 }
 
 // ---------------------------------------------------------------------------
@@ -395,6 +488,38 @@ async function handle(req, res) {
   const refusal = refusalOf(req, pathname)
   if (refusal !== undefined) return send(res, 403, { error: refusal })
   try {
+    const isApi = pathname.startsWith('/api/')
+    const isWrite = isApi && req.method !== 'GET'
+    const body = isApi && (req.method === 'POST' || req.method === 'PUT') ? await readBody(req) : {}
+    // A write holds the notebook's lock, as a Claude Code session's does, so the two never write a note at once.
+    if (isWrite) return await withNotebookLock(() => route(req, res, url, body))
+    return route(req, res, url, body)
+  } catch (error) {
+    if (error instanceof StoreLockError) return send(res, 503, { error: error.message })
+    return send(res, 500, { error: error instanceof Error ? error.message : String(error) })
+  }
+}
+
+/**
+ * A save of a note's text from the page. When it names the version it
+ * started from and the file has changed since, the file stays as it is and
+ * the page's text becomes a note of its own.
+ */
+function saveFromPage(abs, rel, body, isClosing = false) {
+  if (typeof body.base === 'string' && typeof body.content === 'string') {
+    const current = readFileSync(abs, 'utf8')
+    if (versionOf(current) !== body.base) {
+      const copy = keepOtherVersion(rel, body)
+      touch()
+      const { meta, content } = parseNote(current)
+      return { conflict: true, copy: copy === undefined ? null : { path: copy.path, title: copy.meta.title }, note: { path: rel, meta, content, version: versionOf(current) }, isClosing }
+    }
+  }
+  return updateNote(abs, body)
+}
+
+function route(req, res, url, body) {
+  const { pathname } = url
     if (pathname === '/api/health') return send(res, 200, { ok: true, root, web: webDir, version })
     if (pathname === '/api/tree' && req.method === 'GET') return send(res, 200, { notebooks: listNotebooks() })
     if (pathname === '/api/search' && req.method === 'GET') {
@@ -416,38 +541,33 @@ async function handle(req, res) {
         const abs = safeNotePath(url.searchParams.get('path'))
         if (abs === undefined) return send(res, 400, { error: 'bad path' })
         if (!existsSync(abs)) return send(res, 404, { error: 'not found' })
-        return send(res, 200, { ok: true, meta: updateNote(abs, await readBody(req)) })
+        return send(res, 200, { ok: true, ...saveFromPage(abs, url.searchParams.get('path'), body, true) })
       }
       if (req.method === 'POST') {
-        const body = await readBody(req)
         const folder = safeFolder(body.folder)
         if (folder === undefined) return send(res, 400, { error: 'bad folder' })
         const content = typeof body.content === 'string' ? body.content : ''
         const given = typeof body.title === 'string' && body.title.trim() !== '' && body.title.trim() !== 'Untitled'
         const title = given ? body.title.trim() : (titleOf(content) ?? 'Untitled')
-        const id = randomUUID()
-        const now = new Date().toISOString()
-        const rel = `${folder}/${slugOf(title)}--${id.slice(0, 8)}.md`
-        const abs = safeNotePath(rel)
-        if (abs === undefined) return send(res, 400, { error: 'bad path' })
-        mkdirSync(join(notesDir, folder), { recursive: true })
-        const meta = { id, title, folder, created: now, updated: now, captured: 'excerpt' }
-        writeFileSync(abs, serializeNote(meta, content))
+        const created = createNoteFile(folder, title, content)
+        if (created === undefined) return send(res, 400, { error: 'bad path' })
         touch()
-        return send(res, 201, { path: rel, meta, content })
+        return send(res, 201, created)
       }
       const abs = safeNotePath(url.searchParams.get('path'))
       if (abs === undefined) return send(res, 400, { error: 'bad path' })
       if (req.method === 'GET') {
         if (!existsSync(abs)) return send(res, 404, { error: 'not found' })
-        const { meta, content } = parseNote(readFileSync(abs, 'utf8'))
-        return send(res, 200, { path: url.searchParams.get('path'), meta, content })
+        const text = readFileSync(abs, 'utf8')
+        const { meta, content } = parseNote(text)
+        return send(res, 200, { path: url.searchParams.get('path'), meta, content, version: versionOf(text) })
       }
       if (req.method === 'PUT') {
         if (!existsSync(abs)) return send(res, 404, { error: 'not found' })
-        const body = await readBody(req)
         const rel = url.searchParams.get('path')
-        let meta = updateNote(abs, body)
+        const saved = saveFromPage(abs, rel, body)
+        if (saved.conflict) return send(res, 409, { error: 'This note changed since the page opened it.', ...saved })
+        let { meta, version } = saved
         let path = rel
         if (typeof body.folder === 'string') {
           // Moved to another notebook: the file changes directory.
@@ -455,8 +575,9 @@ async function handle(req, res) {
           if (moved.status !== 200) return send(res, moved.status, { error: moved.error })
           path = moved.path
           meta = moved.meta
+          version = moved.version
         }
-        return send(res, 200, { ok: true, path, meta })
+        return send(res, 200, { ok: true, path, meta, version })
       }
       if (req.method === 'DELETE') {
         // Delete: the file goes to <root>/trash/<Notebook>, so nothing is lost;
@@ -477,7 +598,6 @@ async function handle(req, res) {
     }
 
     if (pathname === '/api/notebook' && req.method === 'POST') {
-      const body = await readBody(req)
       const folder = safeFolder(body.name)
       if (folder === undefined) return send(res, 400, { error: 'bad folder' })
       mkdirSync(join(notesDir, folder), { recursive: true })
@@ -486,7 +606,6 @@ async function handle(req, res) {
     }
 
     if (pathname === '/api/notebook' && req.method === 'PUT') {
-      const body = await readBody(req)
       const from = safeFolder(body.name)
       if (from === undefined) return send(res, 400, { error: 'bad folder' })
       const fromDir = join(notesDir, from)
@@ -512,8 +631,14 @@ async function handle(req, res) {
       const to = safeFolder(body.newName)
       if (to === undefined) return send(res, 400, { error: 'bad folder' })
       const toDir = join(notesDir, to)
-      if (from !== to && existsSync(toDir)) return send(res, 409, { error: 'a notebook with that name exists' })
-      if (from !== to) renameSync(fromDir, toDir)
+      // Only the letter case changes: on macOS and Windows that is the same directory, so it goes through a spare name.
+      const isCaseOnly = from !== to && from.toLowerCase() === to.toLowerCase()
+      if (from !== to && !isCaseOnly && existsSync(toDir)) return send(res, 409, { error: 'a notebook with that name exists' })
+      if (isCaseOnly) {
+        const spare = join(notesDir, `.rename-${randomUUID()}`)
+        renameSync(fromDir, spare)
+        renameSync(spare, toDir)
+      } else if (from !== to) renameSync(fromDir, toDir)
       for (const file of readdirSync(toDir)) {
         if (extname(file) !== '.md') continue
         const abs = join(toDir, file)
@@ -570,9 +695,6 @@ async function handle(req, res) {
     if (pathname.startsWith('/api/')) return send(res, 404, { error: 'not found' })
     if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' })
     return serveStatic(res, pathname)
-  } catch (error) {
-    return send(res, 500, { error: error instanceof Error ? error.message : String(error) })
-  }
 }
 
 function serve() {
@@ -582,9 +704,13 @@ function serve() {
   let attempts = 0
   server.on('error', error => {
     if (error.code !== 'EADDRINUSE' || wanted === 0) throw error
-    // A server being replaced may hold the port a moment longer; past that, any free port.
     attempts += 1
-    setTimeout(() => server.listen(attempts < 15 ? wanted : 0, '127.0.0.1'), 200)
+    void (async () => {
+      // A notebook server for these notes already has the port: this one would only be a second copy.
+      if (await servesThisRoot(wanted)) process.exit(0)
+      // A server being replaced may hold the port a moment longer; past that, any free port.
+      setTimeout(() => server.listen(attempts < 15 ? wanted : 0, '127.0.0.1'), 200)
+    })()
   })
   server.on('listening', () => {
     const address = server.address()
@@ -634,7 +760,38 @@ async function isCurrent(info) {
   }
 }
 
+/**
+ * Holds `<root>/.launch.lock` while `work` runs, so two sessions starting at
+ * once start one server; a lock older than 30 s was left by a launcher that died.
+ */
+async function withLaunchLock(work) {
+  mkdirSync(root, { recursive: true })
+  for (let waited = 0; ; waited += 100) {
+    try {
+      mkdirSync(launchLock)
+      break
+    } catch (error) {
+      if (error.code !== 'EEXIST' || waited > 20_000) throw error
+      try {
+        if (Date.now() - statSync(launchLock).mtimeMs > 30_000) rmSync(launchLock, { recursive: true, force: true })
+      } catch {
+        /* gone already */
+      }
+      await sleep(100)
+    }
+  }
+  try {
+    return await work()
+  } finally {
+    rmSync(launchLock, { recursive: true, force: true })
+  }
+}
+
 async function launch() {
+  await withLaunchLock(launchServer)
+}
+
+async function launchServer() {
   const current = readServerFile()
   if (current && isAlive(current.pid)) {
     if (await isCurrent(current)) {
@@ -662,7 +819,8 @@ async function launch() {
   for (let waited = 0; waited < 8000; waited += 100) {
     await new Promise(r => setTimeout(r, 100))
     const info = readServerFile()
-    if (info && info.pid === child.pid && (await isHealthy(info))) {
+    // This child, or a server for these notes that already had the port (the child then left).
+    if (info && (info.pid === child.pid || (isAlive(info.pid) && info.root === root)) && (await isHealthy(info))) {
       console.log(JSON.stringify(info))
       return
     }

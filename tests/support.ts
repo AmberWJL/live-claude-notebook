@@ -105,8 +105,9 @@ export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { t
   const prompts: string[] = []
   const commands: string[][] = []
   const copied: string[] = []
-  /** The store lock's runs, `take` or `give` and their arguments; kept out of `commands`. */
+  /** The store lock's runs, `take`, `renew` or `give` and their arguments; kept out of `commands`. */
   const locks: string[][] = []
+  let generation = 0
   /** What the Save dialog answers: a path, or null for Cancel. */
   const dialog: { savePath: string | null } = { savePath: `${HOME}/Downloads/export.md` }
   /** The host: the Mac's appearance (`Dark`, or null for the light one, which sets no key) and the engine's theme row (null for none). */
@@ -158,10 +159,11 @@ export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { t
   on('process.run', async (_$, e) => {
     const argv = e.argv
     if (argv[1] === '-e' && argv[2] === STORE_LOCK_SCRIPT) {
-      // `lockTakeExit` 3 is another session holding the lock throughout.
+      // `lockTakeExit` 3 is another session holding the lock throughout; a take that succeeds names a new generation.
       locks.push(argv.slice(3))
       const exitCode = argv[3] === 'take' ? (options.lockTakeExit ?? 0) : 0
-      return { value: { exitCode, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+      const stdout = argv[3] === 'take' && exitCode === 0 ? String((generation += 1)) : ''
+      return { value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     commands.push([...e.argv])
     let stdout = ''
