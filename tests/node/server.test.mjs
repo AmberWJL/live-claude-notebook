@@ -198,6 +198,12 @@ test('a notebook renamed to the same name in other letter case is renamed', asyn
   assert.ok(!readdirSync(join(root, 'notes')).includes('ideas'))
 })
 
+test("a write's reply comes only once the server has given the notebook lock back", async () => {
+  assert.equal((await call('POST', '/api/notebook', { name: 'Replied' })).status, 201)
+  const newest = readdirSync(server.lockDir).sort().at(-1)
+  assert.equal(existsSync(join(server.lockDir, newest, 'released')), true, 'a session acting on the reply finds the notebook free')
+})
+
 test('a write waits while a Claude Code session holds the notebook lock, and is refused if it keeps it', async () => {
   const held = lockStep(['take', server.lockDir, 'session', '15000'])
   assert.equal(held.exitCode, 0)

@@ -410,6 +410,23 @@ function send(res, status, body, type = 'application/json; charset=utf-8') {
   res.end(text)
 }
 
+/**
+ * Stands in for the response while a write holds the lock, and keeps its
+ * reply until the lock is given back: whoever hears back from a write, the
+ * page or a session it told, then finds the notebook free.
+ */
+function heldReply() {
+  const reply = { status: 500, headers: {}, text: '' }
+  return {
+    writeHead: (status, headers) => Object.assign(reply, { status, headers }),
+    end: text => Object.assign(reply, { text }),
+    sendTo: res => {
+      res.writeHead(reply.status, reply.headers)
+      res.end(reply.text)
+    },
+  }
+}
+
 /** The port this server listens on, once it does. */
 let listeningPort = 0
 const LOOPBACK_NAMES = ['127.0.0.1', 'localhost', '[::1]']
@@ -492,7 +509,11 @@ async function handle(req, res) {
     const isWrite = isApi && req.method !== 'GET'
     const body = isApi && (req.method === 'POST' || req.method === 'PUT') ? await readBody(req) : {}
     // A write holds the notebook's lock, as a Claude Code session's does, so the two never write a note at once.
-    if (isWrite) return await withNotebookLock(() => route(req, res, url, body))
+    if (isWrite) {
+      const reply = heldReply()
+      await withNotebookLock(() => route(req, reply, url, body))
+      return reply.sendTo(res)
+    }
     return route(req, res, url, body)
   } catch (error) {
     if (error instanceof StoreLockError) return send(res, 503, { error: error.message })
