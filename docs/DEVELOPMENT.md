@@ -1,0 +1,184 @@
+# Live Notebook: development notes
+
+User instructions are in the [README](../README.md). This file keeps the
+technical details for people working on the Mod itself.
+
+## Layout
+
+The Mod's source is this folder. `hooks/` is the Mod itself: the hooks module
+`hooks/register.tsx`, the capture logic in `hooks/capture.ts` and the pane's
+drawing in `hooks/ui/`. Pure logic lives under `src/`, with the data model and
+state contract in `src/types/index.d.ts`. The web notebook is `web/`:
+`web/server.mjs` (Node, no dependencies, bound to 127.0.0.1) serves the static
+files in `web/static/`. Tests are in `tests/` (`claude plugin test`) and
+`tests/node/` (`npm run test:node`).
+
+## Checks
+
+```bash
+claude plugin validate .
+```
+
+```bash
+claude plugin test .
+```
+
+```bash
+npx tsc -p .
+```
+
+```bash
+npm run test:node
+```
+
+`test:node` covers what runs without Claude Code: the note format
+(`src/core/note-format.mjs`) and the web server over HTTP, including the
+guards against other sites. CI (`.github/workflows/ci.yml`) runs it on
+macOS, Windows and Linux.
+
+`claude plugin test` needs Claude Code 2.1.293 or newer. To run a working
+copy without installing it, add the folder as a marketplace and install from
+it: `claude plugin marketplace add <folder>` then `claude plugin install
+live-notebook@live-notebook`; the installed copy is read from the folder, and
+`/reload-plugins` re-reads it. The `tsc` check needs the engine-written types
+in `.claude-plugin/types/`, which appear once the Mod has loaded in a session
+(or run `tsc` with a tsconfig whose `include` names the API declaration file
+the plugin-authoring skill writes).
+
+To run it from this folder in a terminal session:
+
+```bash
+claude --plugin-dir <path to your clone>
+```
+
+To stop the web server by hand: `npm run web:stop`.
+
+## Data
+
+Entries are stored in the Mod's own key-value store, a JSON file under your
+Claude Code configuration directory that the host keeps across sessions and
+restarts. One key per entry (`entry:<id>`) plus a `meta` record, so one
+unreadable record never hides the rest. The store holds 4 MiB in all; one
+entry's content is capped at 200,000 characters and larger text is refused
+rather than cut.
+
+Each entry keeps the original text as a **snapshot** beside the editable
+content, with the capture mode, role, session id, the project directory's
+name and, when it can be matched, the message's transcript row id. Each
+notebook's tags are also kept in the store (`tags:<name>`). Folders are a
+`folders` record in the same store. Entries saved by earlier versions may
+also hold the messages around the capture and the project's full path;
+nothing reads those, and they are never written to a file.
+
+### Several sessions at once
+
+Every Claude Code session on the machine writes the same store, and every
+session and the web server write the same note files. Each single write is
+atomic, but changing a record is a read and then a write, so two writers
+could otherwise undo each other. These rules prevent that:
+
+- **The re-check.** The service writes a changed entry or `folders` record
+  only if the stored one is still the one it read. If another writer got
+  there first, it makes the change again on the newer record. Changes that
+  depend on the record, such as the model's tags filling only empty tags,
+  are decided at that moment too (`updateWith`).
+- **The lock.** Each write holds the notebook's lock,
+  `~/.claude/live-notebook/.store-lock`, which sessions and the web server
+  share (`src/core/store-lock.mjs`, run as a short node script since `$.fs`
+  cannot create a file exclusively). The lock is a folder of numbered
+  generations: taking it creates the next number, which only one process
+  can do. A holder renews it every 5 seconds and right before every write,
+  and stops writing if a newer generation exists. A lock not renewed for 15
+  seconds is taken over by creating the next generation, and the takeover
+  withdraws if the old holder renewed meanwhile. Each side acts first and
+  checks second, so a live holder and a contender never both go on.
+- **No write without the lock.** A write that cannot get the lock within
+  about 3 seconds is refused with a NotebookError `busy`, and nothing is
+  saved. The pane keeps the draft and says to save again; a refused web
+  import is planned again on the next scan; a refused classification is
+  dropped.
+- **Only what changed.** A pane edit remembers the note as it opened and
+  saves only the fields edited since. If the text also changed elsewhere,
+  the save is refused once with a notice, and a second Save replaces it.
+- **Files merge, not overwrite.** Each session remembers every note file as
+  it last wrote or read it. Before writing a file that changed on disk
+  since, the mod takes in the fields changed there; text changed on both
+  sides keeps the store's, and the disk's becomes a note of its own
+  ("… (other version)"). An import likewise leaves a field the file did not
+  change, so a change not yet written to the file stays.
+- **Versions on the page.** A save from the web page names the version of
+  the title and text it started from. If the file changed since, the server
+  keeps the newer file and saves the page's text as a note of its own; the
+  page then shows the newer note and says where its text went. An open note
+  the page is not editing reloads when it changes.
+
+A process frozen outright (in a debugger, say) between its last check and
+its write can be taken over after 15 seconds. Closing that would take a
+conditional write in `$.store`, which the host does not offer.
+
+### The notes folder
+
+The folder (`LIVE_NOTEBOOK_HOME`, else `~/.claude/live-notebook`) holds
+everything needed to rebuild every note, so other tools can read and write
+it without Claude Code:
+
+- `notes/<Notebook>/<slug>--<id8>.md`: front matter (`id`, `title`,
+  `folder`, `type`, `tags` as a JSON list, `created`, `updated`,
+  `captured`, `role`, `session`, `project`, `pinned`, `archived`), a blank
+  line, then the text.
+- `notes/<Notebook>/_notebook.json`: the notebook's tags and its pinned and
+  archived flags.
+- `sources/<id>.json`: for a note saved from a conversation, the snapshot,
+  capture mode and time, and the message id.
+- `trash/`: deleted notes (`trash/<Notebook>/`) and their sidecars
+  (`trash/sources/`).
+- `settings.json`: `{ "ai": "chat-only" | "all" | "off" }`.
+
+The format lives in one place, `src/core/note-format.mjs` (plain
+JavaScript, typed by `note-format.d.mts`); the server and the Mod both use
+it. The Mod polls `notes/.touch` every few seconds and imports any file
+whose time changed (`planImport`): a file with no entry becomes one, and
+one whose front matter names a session is rebuilt as a capture, with its
+sidecar's snapshot. When the files format changes (`FILES_FORMAT` in
+`hooks/register.tsx`), every note's file is rewritten once at session start.
+
+### What leaves the machine
+
+Only the AI typing, titling and tagging, through the session's own API
+client: a note's title and first 1,200 characters (type and title), and the
+titles, first 300 characters of up to 20 notes and the project names (a
+notebook's tags). `settings.json`'s `ai` decides which notes the model may
+see: `chat-only` (the default) only notes saved from a Claude Code
+conversation (`isFromChat`), `all` every note, `off` none.
+
+### The web server's guards
+
+It binds 127.0.0.1. It refuses (403) a request whose Host is not
+`127.0.0.1`, `localhost` or `[::1]` at its own port (DNS rebinding); one a
+browser marks as from another site or origin, except a plain navigation to
+the page; and a POST or PUT that is not `application/json` (so no other
+site can write without a preflight, which it never answers). The page is
+served with a Content-Security-Policy that runs only its own scripts, plus
+Vditor's inline icon and string scripts by hash. Vditor is vendored in
+`web/vendor/` (see its README).
+
+## Phase 0 findings
+
+What the Claude Code 2.1.293 Mod runtime offers, checked against its API
+declarations and the plugin test kit:
+
+- **Persistence**: `$.store` is a per-plugin JSON key-value store kept across sessions and hot reloads, 4 MiB in all. Sufficient for the MVP; no database needed.
+- **Recent messages**: `$.session.messages()` returns the newest 4,096 user and assistant messages as `{ role, text, toolUses }`. Whole-message capture works from this. It carries **no message ids**.
+- **Message ids**: `session.append` fires for every stored row with its `uuid`. The Mod fingerprints each main-conversation row (role, length, head and tail) and matches a picked message back to its row id when exactly one row matches. A reply split across several text blocks, or a resumed session's history, has no id; the entry still saves with the snapshot.
+- **Selected text**: `$.ui.selection()` returns the text the person selected in the transcript and the row it lies in. This is the excerpt path for the fullscreen terminal and the desktop app; it is undefined elsewhere, where `/save <text>` is the fallback.
+- **Session id**: `$.session.id()`.
+- **UI**: a pane (`$.ui.open`, drawn by a `ui.render` hook) with Box, Text, Button, Input, Select and Markdown on the terminal, desktop and VS Code surfaces. Input is single-line, so the capture editor is a `Client` surface module of the Mod's own (`hooks/ui/editor.ts`) that keeps lines, cursor and scroll itself; it runs on the terminal and desktop, and VS Code shows the capture read-only. A saved note shows read-only (Markdown) and is edited in the web notebook. Mobile has no Input or Select, so it gets a read-only list.
+- **Navigation to the original message**: `$.ui.scroll` can scroll a transcript row into view by id, but only while answering the person's own input and only within the current session. The pane does not offer it; the original text is kept as the entry's snapshot.
+- **Module rules the validator enforces**: `$` may only be passed to functions declared in the hooks module itself, and state atoms must be consts of that module with literal plugin and key names. Hence the split: `register.tsx` holds everything that touches `$`; the rest is pure and tested in isolation.
+- **Tooling**: the `claude` on PATH (2.1.220) lacks `plugin test`; the desktop app's bundled 2.1.293 binary has it.
+
+## Known limitations
+
+- Session Progress (the design's §4.1) is not implemented in this phase.
+- Message ids are best effort, as described above.
+- Entries are per user, not per project; there is no sync or sharing.
