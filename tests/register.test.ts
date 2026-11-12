@@ -425,6 +425,31 @@ describe('live-notebook hooks', () => {
     await ui.unmount()
   })
 
+  test('over SSH with no screen, the web notebook offers the tunnel to run on your computer instead of a browser', async ($, on) => {
+    fakeStore(on)
+    const fs = fakeFs(on)
+    const engine = fakeEngine(on, [], { env: { SSH_CONNECTION: '203.0.113.5 50000 192.168.1.9 22', USER: 'amber' } })
+    mock.clock(on)
+    await $.session.start(START)
+    const command = 'ssh -N -o ExitOnForwardFailure=yes -L 4322:127.0.0.1:4321 amber@build-box'
+
+    const ran = await $.command.run({ ...RUN, command: 'notebook', args: 'web' })
+    expect(ran.text).toBe(`Web notebook: on your computer, run \`${command}\` and open http://127.0.0.1:4322`)
+    expect(engine.commands.filter(argv => ['open', 'xdg-open', 'rundll32'].includes(argv[0] ?? ''))).toEqual([])
+
+    // Write Note in Web: the notice names the tunnel and the new note's page at its near end, with a Copy for each.
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', requestId: PANE, props: PANE_PROPS })
+    await ui.press({ key: 'new-note' })
+    const made = [...fs.files.keys()].find(path => /\/untitled--[0-9a-f]{8}\.md$/.test(path)) ?? ''
+    const url = `http://127.0.0.1:4322/#/${encodeURIComponent(made.slice(NOTES.length + 1))}`
+    expect(await ui.find({ type: 'Text', text: `This session runs on build-box. On your computer, run ${command} and open ${url}` })).toBeDefined()
+    expect(engine.commands.filter(argv => ['open', 'xdg-open', 'rundll32'].includes(argv[0] ?? ''))).toEqual([])
+    await ui.press({ key: 'copy-tunnel' })
+    await ui.press({ key: 'copy-link' })
+    expect(engine.copied).toEqual([command, url])
+    await ui.unmount()
+  })
+
   test('a pane edit saves only what it changed, and never writes over text changed elsewhere meanwhile', async ($, on) => {
     const data = fakeStore(on, { meta: { schemaVersion: 1 }, folders: { names: ['General', 'Ops'], last: 'Ops' }, 'entry:e-1': seeded })
     fakeFs(on)

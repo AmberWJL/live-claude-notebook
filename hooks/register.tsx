@@ -28,6 +28,7 @@ import { aiModeOf, isNoteId, parseSourceFile, projectNameOf, sourcePathFor, type
 import { STORE_LOCK_DIR, STORE_LOCK_SCRIPT, StoreLockError, withStoreLock } from '../src/core/store-lock.mjs'
 import { classifyPrompt, parseClassification } from '../src/services/classify'
 import { EXPORT_FORMATS, formatOf } from '../src/services/export-markdown.mjs'
+import { sshLoginOf, webTunnel, type WebTunnel } from '../src/services/web-tunnel'
 import { deriveTitle } from '../src/utils/normalize-content'
 import {
   NOTEBOOK_META_FILE,
@@ -537,7 +538,7 @@ async function exportNotebook($: Dollar, folder: string): Promise<void> {
     const path = /\.[^./]+$/.test(chosen) ? chosen : `${chosen}.md`
     const text = EXPORT_FORMATS[formatOf(path)].render({ name: folder, tags: tags[folder]?.tags ?? [], notes }, new Date(now).toISOString().slice(0, 10))
     await hostWrite($, path, text)
-    await setNotice($, { tone: 'ok', text: `Exported ${folder} to ${path}`, copy: path })
+    await setNotice($, { tone: 'ok', text: `Exported ${folder} to ${path}`, copies: [{ key: 'copy-notice', label: 'Copy path', text: path }] })
   } catch (error) {
     await setNotice($, { tone: 'error', text: messageOf(error) })
   }
@@ -1076,11 +1077,52 @@ async function ensureServer($: Dollar): Promise<void> {
   }
 }
 
-/** Opens the web notebook in the browser, at a note's file when one is named. */
-async function openWeb($: Dollar, file?: string): Promise<void> {
+/**
+ * The tunnel to show in place of a browser when this session runs on a
+ * machine reached over SSH with no screen of its own (no DISPLAY): a browser
+ * opened there, if one opened at all, would not be on the person's screen.
+ */
+async function webTunnelOf($: Dollar, port: number, path: string): Promise<WebTunnel | undefined> {
+  const [connection, display, wayland, user] = await Promise.all([
+    $.env.get('SSH_CONNECTION'),
+    $.env.get('DISPLAY'),
+    $.env.get('WAYLAND_DISPLAY'),
+    $.env.get('USER'),
+  ])
+  if (!connection || display || wayland) return undefined
+  let hostname = ''
+  try {
+    const run = await hostRun($, ['hostname'], { timeoutMs: 5_000 })
+    if (run.exitCode === 0) hostname = run.stdout
+  } catch {
+    /* the connection's address stands in */
+  }
+  const login = sshLoginOf(connection, hostname, user ?? '')
+  return login === undefined ? undefined : webTunnel(login, port, path)
+}
+
+/**
+ * Opens the web notebook in the browser, at a note's file when one is named;
+ * over SSH, offers the tunnel to the person's own computer instead, and
+ * returns it.
+ */
+async function openWeb($: Dollar, file?: string): Promise<WebTunnel | undefined> {
   try {
     const info = await startServer($)
-    const url = file === undefined ? info.url : `${info.url}/#/${encodeURIComponent(file)}`
+    const path = file === undefined ? '' : `/#/${encodeURIComponent(file)}`
+    const tunnel = await webTunnelOf($, info.port, path)
+    if (tunnel !== undefined) {
+      await setNotice($, {
+        tone: 'ok',
+        text: `This session runs on ${tunnel.host}. On your computer, run ${tunnel.command} and open ${tunnel.url}`,
+        copies: [
+          { key: 'copy-tunnel', label: 'Copy command', text: tunnel.command },
+          { key: 'copy-link', label: 'Copy link', text: tunnel.url },
+        ],
+      })
+      return tunnel
+    }
+    const url = `${info.url}${path}`
     // macOS, then Linux desktops, then Windows; the first opener present and willing wins.
     const openers = [['open'], ['xdg-open'], ['rundll32', 'url.dll,FileProtocolHandler']]
     let isOpened = false
@@ -1097,6 +1139,7 @@ async function openWeb($: Dollar, file?: string): Promise<void> {
   } catch (error) {
     await setNotice($, { tone: 'error', text: messageOf(error) })
   }
+  return undefined
 }
 
 /** Edit: the note opens in the web notebook, its file written first if it has none yet. */
@@ -1738,7 +1781,8 @@ export const register: Register = on => {
   on('command.run', { command: 'notebook' }, async ($, e) => {
     const args = e.args.trim()
     if (args === 'web') {
-      await openWeb($)
+      const tunnel = await openWeb($)
+      if (tunnel !== undefined) return { text: `Web notebook: on your computer, run \`${tunnel.command}\` and open ${tunnel.url}` }
       const server = await read($, serverAtom)
       return { text: server ? `Web notebook: ${server.url}` : 'The web notebook could not be started; see the pane.' }
     }

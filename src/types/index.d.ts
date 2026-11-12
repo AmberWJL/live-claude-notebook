@@ -162,8 +162,11 @@ export type NotebookView =
   | { kind: 'note'; entryId: string; isDeleteArmed?: boolean }
   | { kind: 'edit'; entryId: string }
 
-/** A short status line; `open` names an entry the line offers to open, `copy` a text (a path) it offers to copy. */
-export type Notice = { tone: 'ok' | 'error'; text: string; open?: string; resume?: true; copy?: string; at?: number } | null
+/** A button on a status line that copies a text (a path, a command, a link): its key, its label and the text. */
+export type NoticeCopy = { key: string; label: string; text: string }
+
+/** A short status line; `open` names an entry the line offers to open, `copies` the texts it offers to copy. */
+export type Notice = { tone: 'ok' | 'error'; text: string; open?: string; resume?: true; copies?: NoticeCopy[]; at?: number } | null
 
 declare module 'claude-code' {
   interface PluginState {
