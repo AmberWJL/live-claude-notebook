@@ -259,7 +259,7 @@ export function renderNotebookPane(
   // Each option is the type's mark, then its name; a Select draws its text in the surface's own colour.
   const typeOptions = ENTRY_TYPES.map(type => ({ value: type, label: `${TYPE_GLYPHS[type]} ${TYPE_LABELS[type]}` }))
 
-  // A short status line: one phrase, an optional Open, Resume or Copy path, and a way to dismiss it.
+  // A short status line: one phrase, an optional Open or Resume, its Copy buttons, and a way to dismiss it.
   const noticeRow = notice ? (
     <Box gap={1} flexWrap="wrap" marginTop={1}>
       <Text color={notice.tone === 'error' ? 'error' : 'success'}>{notice.text}</Text>
@@ -268,11 +268,11 @@ export function renderNotebookPane(
           Open
         </Button>
       )}
-      {notice.copy !== undefined && (
-        <Button key="copy-notice" plain onPress={press => actions.copy(notice.copy ?? '', press.surface)}>
-          Copy path
+      {(notice.copies ?? []).map(copy => (
+        <Button key={copy.key} plain onPress={press => actions.copy(copy.text, press.surface)}>
+          {copy.label}
         </Button>
-      )}
+      ))}
       {notice.resume === true && (
         <Button key="resume-draft" plain onPress={() => actions.resume()}>
           Resume

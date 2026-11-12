@@ -98,7 +98,7 @@ export function fakeFs(on: On, initial: Record<string, string> = {}) {
 }
 
 /** The rest of the engine beneath the plugin: session, commands, UI, model, processes. */
-export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { tags?: string; type?: string; lockTakeExit?: number } = {}) {
+export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { tags?: string; type?: string; lockTakeExit?: number; env?: Record<string, string> } = {}) {
   const registered: string[] = []
   const opened: string[] = []
   const toasts: string[] = []
@@ -112,7 +112,7 @@ export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { t
   const dialog: { savePath: string | null } = { savePath: `${HOME}/Downloads/export.md` }
   /** The host: the Mac's appearance (`Dark`, or null for the light one, which sets no key) and the engine's theme row (null for none). */
   const host: { appearance: 'Dark' | null; theme: string | null } = { appearance: null, theme: null }
-  mock.env(on, { HOME })
+  mock.env(on, { HOME, ...options.env })
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
   on('turn.complete', async (_$, e) => ({ text: e.answer }))
   on('command.register', async (_$, e) => {
@@ -169,6 +169,8 @@ export function fakeEngine(on: On, messages: SessionMessage[] = [], options: { t
     let stdout = ''
     if (argv[0] === 'node' && argv.includes('--launch')) {
       stdout = JSON.stringify({ port: 4321, pid: 999, url: 'http://127.0.0.1:4321', startedAt: 1 })
+    } else if (argv[0] === 'hostname') {
+      stdout = 'build-box\n'
     } else if (argv[0] === 'node' && argv.includes('--stop')) {
       stdout = JSON.stringify({ stopped: true, pid: 999 })
     } else if (argv[0] === '/usr/bin/osascript') {
